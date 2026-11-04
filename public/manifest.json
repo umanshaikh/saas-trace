@@ -1,0 +1,21 @@
+{
+  "name": "TRACE — Smart Business. Simple Management.",
+  "short_name": "TRACE",
+  "description": "All-in-one POS, AI Assistant, B2B Network, PayLater & Business Management Platform",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
