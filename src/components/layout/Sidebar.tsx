@@ -48,7 +48,7 @@ export function Sidebar({
     {
       groupTitle: "CORE POS & BILLING",
       items: [
-        { label: "POS Billing Counter", href: "/pos", icon: Calculator, badge: "F1 Fast" },
+        { label: "POS Billing Counter", href: "/pos", icon: Calculator, badge: "Fast POS" },
         { label: "Shop Dashboard", href: "/dashboard", icon: LayoutDashboard },
         { label: "Inventory & Stock", href: "/inventory", icon: Package },
         { label: "Customer Directory", href: "/customers", icon: Users },

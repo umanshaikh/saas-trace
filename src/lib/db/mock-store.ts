@@ -76,8 +76,8 @@ export const DEMO_PROFILES: Profile[] = [
 export const DEMO_SHOPS: Shop[] = [
   {
     id: 'shop_default',
-    name: 'My Store',
-    slug: 'my-store',
+    name: 'TRACE Retail Store',
+    slug: 'trace-retail-store',
     business_type: 'retail',
     owner_id: 'usr_default',
     gstin: '',

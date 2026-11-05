@@ -589,7 +589,7 @@ export default function DashboardPage() {
                   {activeShop.name}
                 </h3>
                 <p className="text-xs text-muted-foreground font-sans">
-                  {activeShop.city} • GSTIN: {activeShop.gstin || "27AABCT1332L1Z5"}
+                  {activeShop.city} • {activeShop.gstin ? `GSTIN: ${activeShop.gstin}` : "GST: Unregistered / Exempt"}
                 </p>
                 <div className="flex justify-between text-xs text-muted-foreground mt-2 pt-2 border-t border-border/40">
                   <span>Invoice: {selectedInvoice.invoice_number}</span>

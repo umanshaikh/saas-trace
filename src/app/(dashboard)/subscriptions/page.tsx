@@ -17,6 +17,7 @@ import {
   CreditCard,
   QrCode,
   RefreshCw,
+  ShieldAlert,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,10 @@ export default function SubscriptionsPage() {
   }, [activeShop.id, activeSubscription]);
 
   const handleStartUpgrade = (plan: any) => {
+    if (userRole !== "OWNER") {
+      alert("Subscription management and billing plan upgrades are restricted to Store Owners.");
+      return;
+    }
     setSelectedPlanForUpgrade(plan);
     setPaymentStep("REVIEW");
   };
@@ -185,6 +190,18 @@ export default function SubscriptionsPage() {
           </button>
         </div>
       </div>
+
+      {/* Read-Only Notice for non-owners */}
+      {userRole !== "OWNER" && (
+        <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between text-xs text-amber-400">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0" />
+            <span>
+              <strong>Read-Only Access:</strong> You are viewing software plans as a <strong>{userRole}</strong>. Subscription billing and payment upgrades are restricted to Store Owners.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Current Active Plan Pill */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-card via-card to-indigo-950/20 shadow-sm gap-3">

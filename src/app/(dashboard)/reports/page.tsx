@@ -121,6 +121,29 @@ export default function ReportsPage() {
     return Object.values(map);
   }, [shopInvoices]);
 
+  // GST Rate Slab Aggregator (0% Exempt, 5%, 12%, 18%, 28%)
+  const slabBreakdown = useMemo(() => {
+    const slabs: Record<number, { taxablePaise: number; taxPaise: number; itemCount: number }> = {
+      0: { taxablePaise: 0, taxPaise: 0, itemCount: 0 },
+      5: { taxablePaise: 0, taxPaise: 0, itemCount: 0 },
+      12: { taxablePaise: 0, taxPaise: 0, itemCount: 0 },
+      18: { taxablePaise: 0, taxPaise: 0, itemCount: 0 },
+      28: { taxablePaise: 0, taxPaise: 0, itemCount: 0 },
+    };
+
+    shopInvoices.forEach((inv) => {
+      (inv.items || []).forEach((item: any) => {
+        const rate = Math.round(Number(item.tax_rate_percent ?? item.tax_rate ?? 0));
+        const matchedRate = rate in slabs ? rate : (rate > 20 ? 28 : rate > 14 ? 18 : rate > 8 ? 12 : rate > 2 ? 5 : 0);
+        slabs[matchedRate].taxablePaise += (item.line_total_paise ?? item.total_paise ?? 0);
+        slabs[matchedRate].taxPaise += (item.tax_paise ?? 0);
+        slabs[matchedRate].itemCount += Number(item.quantity || 1);
+      });
+    });
+
+    return slabs;
+  }, [shopInvoices]);
+
   // Export Downloadable Sales Register CSV
   const handleDownloadSalesRegisterCSV = () => {
     if (shopInvoices.length === 0) {
@@ -138,23 +161,34 @@ export default function ReportsPage() {
       "Gross Taxable (₹)",
       "CGST (₹)",
       "SGST (₹)",
+      "IGST (₹)",
       "Total GST (₹)",
       "Invoice Total (₹)",
     ];
 
-    const rows = shopInvoices.map((inv) => [
-      inv.invoice_number,
-      new Date(inv.created_at).toLocaleDateString(),
-      `"${(inv.customer_name || inv.customer_name_snapshot || "Walk-in Guest").replace(/"/g, '""')}"`,
-      inv.customer_phone || inv.customer_phone_snapshot || "",
-      inv.payment_method,
-      inv.payment_status,
-      (inv.subtotal_paise / 100).toFixed(2),
-      ((inv.tax_paise / 2) / 100).toFixed(2),
-      ((inv.tax_paise / 2) / 100).toFixed(2),
-      (inv.tax_paise / 100).toFixed(2),
-      (inv.total_amount_paise / 100).toFixed(2),
-    ]);
+    const rows = shopInvoices.map((inv) => {
+      const isInter = inv.notes?.toLowerCase().includes("interstate") || Boolean((inv as any).is_inter_state);
+      const halfTaxRupees = ((inv.tax_paise / 2) / 100).toFixed(2);
+      const fullTaxRupees = (inv.tax_paise / 100).toFixed(2);
+      const cgst = isInter ? "0.00" : halfTaxRupees;
+      const sgst = isInter ? "0.00" : halfTaxRupees;
+      const igst = isInter ? fullTaxRupees : "0.00";
+
+      return [
+        inv.invoice_number,
+        new Date(inv.created_at).toLocaleDateString(),
+        `"${(inv.customer_name || inv.customer_name_snapshot || "Walk-in Guest").replace(/"/g, '""')}"`,
+        inv.customer_phone || inv.customer_phone_snapshot || "",
+        inv.payment_method,
+        inv.payment_status,
+        (inv.subtotal_paise / 100).toFixed(2),
+        cgst,
+        sgst,
+        igst,
+        fullTaxRupees,
+        (inv.total_amount_paise / 100).toFixed(2),
+      ];
+    });
 
     const csvContent =
       "data:text/csv;charset=utf-8," +
@@ -242,7 +276,7 @@ export default function ReportsPage() {
           </div>
           <div>
             <p className="font-bold text-foreground">
-              Shop GSTIN: <span className="font-mono text-sm">{activeShop.gstin || "27AABCT1332L1Z5"}</span>
+              Shop GSTIN: <span className="font-mono text-sm">{activeShop.gstin || "Unregistered / Composition"}</span>
             </p>
             <p className="text-[11px] text-muted-foreground">{gstinStatus.message}</p>
           </div>
@@ -427,20 +461,26 @@ export default function ReportsPage() {
                 { slab: "12% Standard GST", rate: 12, desc: "Processed foods, ghee, butter, pharmaceuticals" },
                 { slab: "18% Standard GST", rate: 18, desc: "FMCG, personal care, toiletries, services" },
                 { slab: "28% Luxury GST", rate: 28, desc: "Carbonated beverages, electronics, luxury items" },
-              ].map((s) => (
-                <div
-                  key={s.slab}
-                  className="flex items-center justify-between p-2.5 rounded-lg border border-border/40 bg-accent/10 text-xs"
-                >
-                  <div>
-                    <span className="font-bold text-foreground">{s.slab}</span>
-                    <p className="text-[10px] text-muted-foreground">{s.desc}</p>
+              ].map((s) => {
+                const stat = slabBreakdown[s.rate] || { taxablePaise: 0, taxPaise: 0 };
+                return (
+                  <div
+                    key={s.slab}
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-border/40 bg-accent/10 text-xs"
+                  >
+                    <div>
+                      <span className="font-bold text-foreground">{s.slab}</span>
+                      <p className="text-[10px] text-muted-foreground">{s.desc}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-mono font-bold text-foreground">{formatPaise(stat.taxablePaise)}</p>
+                      <p className="text-[10px] text-indigo-400 font-mono">
+                        {s.rate === 0 ? "Exempt (₹0)" : `Tax: +${formatPaise(stat.taxPaise)}`}
+                      </p>
+                    </div>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">
-                    Supported in POS
-                  </Badge>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         </div>

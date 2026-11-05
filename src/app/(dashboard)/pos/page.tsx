@@ -433,8 +433,8 @@ export default function POSPage() {
           tax_rate: taxRate,
           tax_rate_percent: taxRate,
           tax_paise: itemTax,
-          line_total_paise: Math.max(0, itemGross) + itemTax,
-          total_paise: Math.max(0, itemGross) + itemTax,
+          line_total_paise: Math.max(0, itemGross),
+          total_paise: Math.max(0, itemGross),
         };
       });
 
@@ -530,7 +530,7 @@ export default function POSPage() {
       `Bill: #${inv.invoice_number}`,
       `Date: ${new Date(inv.created_at || Date.now()).toLocaleDateString()} ${new Date(inv.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
       `Customer: ${inv.customer_name_snapshot || inv.customer_name || 'Valued Guest'}`,
-      `GSTIN: ${activeShop.gstin || "27AABCT1332L1Z5"}`,
+      activeShop.gstin ? `GSTIN: ${activeShop.gstin}` : "GST: Unregistered / Composition",
       `--------------------------------`,
     ];
 
@@ -1363,7 +1363,7 @@ export default function POSPage() {
                   {activeShop.address_line1 || activeShop.city} • Ph: {activeShop.phone || "Store Contact"}
                 </p>
                 <p className="text-[10px] text-muted-foreground font-sans">
-                  GSTIN: {activeShop.gstin || "27AABCT1332L1Z5"}
+                  {activeShop.gstin ? `GSTIN: ${activeShop.gstin}` : "GST: Unregistered / Composition"}
                 </p>
                 <p className="mt-1 font-bold">Tax Invoice #{completedInvoice.invoice_number}</p>
                 {completedInvoice.is_offline && (

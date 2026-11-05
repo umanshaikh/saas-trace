@@ -10,12 +10,13 @@ import {
   Save,
   CheckCircle2,
   RefreshCw,
+  ShieldAlert,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default function SettingsPage() {
-  const { activeShop, updateActiveShop, showToast } = useTrace();
+  const { activeShop, updateActiveShop, showToast, userRole } = useTrace();
 
   const [shopName, setShopName] = useState(activeShop.name);
   const [city, setCity] = useState(activeShop.city);
@@ -69,6 +70,24 @@ export default function SettingsPage() {
       setIsSaving(false);
     }
   };
+
+  if (userRole === "CASHIER" || userRole === "STAFF") {
+    return (
+      <div className="max-w-xl mx-auto py-16 text-center space-y-4 animate-in fade-in duration-200">
+        <div className="h-16 w-16 mx-auto rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 shadow-inner">
+          <ShieldAlert className="h-8 w-8" />
+        </div>
+        <h2 className="text-xl font-bold text-foreground">Access Restricted</h2>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Store metadata, legal GSTIN registration, and hardware printer parameters can only be modified by an authorized Store Owner or Manager.
+        </p>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/30 border border-border/60 text-xs font-semibold text-muted-foreground">
+          <span>Active Session Role:</span>
+          <span className="text-indigo-400 uppercase font-mono">{userRole}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-4xl animate-in fade-in duration-200">

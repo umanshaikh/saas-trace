@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
+import { enforcePermission } from "@/lib/auth/rbac";
 
 export async function GET(req: NextRequest) {
   try {
@@ -37,6 +38,11 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const permCheck = enforcePermission(req, "canEditInventory", body.role);
+    if (!permCheck.authorized) {
+      return permCheck.response!;
+    }
+
     const {
       shopId,
       name,
@@ -104,6 +110,11 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
+    const permCheck = enforcePermission(req, "canEditInventory", body.role);
+    if (!permCheck.authorized) {
+      return permCheck.response!;
+    }
+
     const { id, ...updates } = body;
 
     if (!id) {
@@ -144,6 +155,11 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const permCheck = enforcePermission(req, "canDeleteProducts");
+    if (!permCheck.authorized) {
+      return permCheck.response!;
+    }
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 

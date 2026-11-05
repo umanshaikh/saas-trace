@@ -271,6 +271,29 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         setExpenses(dbExpenses);
       }
 
+      // 7. Fetch onboarding_progress for active shop from Supabase
+      const { data: dbProgress, error: progErr } = await supabase
+        .from("onboarding_progress")
+        .select("*")
+        .eq("shop_id", activeShopId)
+        .maybeSingle();
+
+      if (!progErr && dbProgress) {
+        const restored: OnboardingProgress = {
+          userId: dbProgress.user_id,
+          shopId: dbProgress.shop_id,
+          currentStep: dbProgress.current_step,
+          completedSteps: Array.isArray(dbProgress.completed_steps) ? dbProgress.completed_steps : [],
+          isCompleted: Boolean(dbProgress.is_completed),
+          stepData: dbProgress.step_data || {},
+          lastUpdated: dbProgress.updated_at || new Date().toISOString(),
+        };
+        setOnboardingProgress(restored);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`trace_onboarding_${activeShopId}`, JSON.stringify(restored));
+        }
+      }
+
       setSyncStatus("SYNCED");
     } catch (err) {
       console.warn("Supabase background sync:", err);
@@ -390,6 +413,49 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       }
       setAuthSession(data.session);
       setAuthUser(data.user);
+
+      if (data.user) {
+        // Query user's registered shops from Supabase
+        const { data: userShops } = await supabase
+          .from("shops")
+          .select("*")
+          .or(`owner_id.eq.${data.user.id},email.eq.${email}`);
+
+        if (userShops && userShops.length > 0) {
+          const userShop = userShops[0];
+          setAllShops((prev) => {
+            const next = [userShop, ...prev.filter((s) => s.id !== userShop.id)];
+            if (typeof window !== "undefined") localStorage.setItem("trace_shops", JSON.stringify(next));
+            return next;
+          });
+          setActiveShopId(userShop.id);
+          if (typeof window !== "undefined") localStorage.setItem("trace_active_shop_id", userShop.id);
+
+          // Restore shop's saved onboarding progress
+          const { data: dbProg } = await supabase
+            .from("onboarding_progress")
+            .select("*")
+            .eq("shop_id", userShop.id)
+            .maybeSingle();
+
+          if (dbProg) {
+            const restored: OnboardingProgress = {
+              userId: dbProg.user_id,
+              shopId: dbProg.shop_id,
+              currentStep: dbProg.current_step,
+              completedSteps: Array.isArray(dbProg.completed_steps) ? dbProg.completed_steps : [],
+              isCompleted: Boolean(dbProg.is_completed),
+              stepData: dbProg.step_data || {},
+              lastUpdated: dbProg.updated_at || new Date().toISOString(),
+            };
+            setOnboardingProgress(restored);
+            if (typeof window !== "undefined") {
+              localStorage.setItem(`trace_onboarding_${userShop.id}`, JSON.stringify(restored));
+            }
+          }
+        }
+      }
+
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message || "Failed to sign in" };
@@ -609,7 +675,7 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
               step_data: nextData,
               updated_at: new Date().toISOString(),
             },
-          ]);
+          ], { onConflict: "user_id,shop_id" });
         } catch (err) {
           console.warn("Supabase onboarding progress sync notice:", err);
         }
@@ -647,7 +713,7 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
               is_completed: true,
               updated_at: new Date().toISOString(),
             },
-          ]);
+          ], { onConflict: "user_id,shop_id" });
         } catch (err) {
           console.warn("Supabase onboarding completion notice:", err);
         }
@@ -783,8 +849,44 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     state?: string;
     pincode?: string;
   }): Promise<Shop> => {
-    const shopId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `shop_${Date.now()}`;
     const ownerId = currentUser.id || "00000000-0000-0000-0000-000000000001";
+
+    // 1. Check local cache to prevent duplicate shop creation
+    const existingLocal = allShops.find(
+      (s) =>
+        s.name.trim().toLowerCase() === data.name.trim().toLowerCase() &&
+        (s.email?.toLowerCase() === data.email?.toLowerCase() || s.owner_id === ownerId)
+    );
+    if (existingLocal) {
+      setActiveShopId(existingLocal.id);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("trace_active_shop_id", existingLocal.id);
+      }
+      return existingLocal;
+    }
+
+    // 2. Check Supabase to prevent duplicate shop creation
+    try {
+      const { data: dbExisting } = await supabase
+        .from("shops")
+        .select("*")
+        .ilike("name", data.name.trim())
+        .or(`email.eq.${data.email},owner_id.eq.${ownerId}`)
+        .maybeSingle();
+
+      if (dbExisting) {
+        setAllShops((prev) => [dbExisting, ...prev.filter((s) => s.id !== dbExisting.id)]);
+        setActiveShopId(dbExisting.id);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("trace_active_shop_id", dbExisting.id);
+        }
+        return dbExisting;
+      }
+    } catch (e) {
+      console.warn("Supabase check existing shop notice:", e);
+    }
+
+    const shopId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `shop_${Date.now()}`;
     const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || `shop-${Date.now()}`;
 
     const newShop: Shop = {
@@ -1058,6 +1160,19 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
           .from("products")
           .update({ current_stock: targetNewQty })
           .eq("id", productId);
+
+        const movementId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `mov_${Date.now()}`;
+        await supabase.from("stock_movements").insert([
+          {
+            id: movementId,
+            shop_id: activeShop.id,
+            product_id: productId,
+            movement_type: reason || "RESTOCK",
+            quantity: quantityDelta,
+            notes: notes || `Manual stock adjustment: ${quantityDelta > 0 ? "+" : ""}${quantityDelta}`,
+            created_at: new Date().toISOString(),
+          },
+        ]);
       } catch (err) {
         console.warn("Supabase stock update error:", err);
       }
@@ -1322,9 +1437,14 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetch("/api/pos/checkout", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-user-role": userRole,
+            "x-shop-id": activeShop.id,
+          },
           body: JSON.stringify({
             shopId: activeShop.id,
+            role: userRole,
             customerId,
             customerName,
             customerPhone,

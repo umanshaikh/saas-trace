@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
+import { enforcePermission } from "@/lib/auth/rbac";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const permCheck = enforcePermission(req, "canOperatePOS", body.role);
+    if (!permCheck.authorized) {
+      return permCheck.response!;
+    }
+
     const {
       shopId,
       customerId,

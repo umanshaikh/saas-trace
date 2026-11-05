@@ -549,7 +549,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
       const discountPaise = rupeesToPaise(Math.min(invDiscountRupees, grossPaise / 100));
       const taxablePaise = Math.max(0, grossPaise - discountPaise);
       const taxPaise = Math.round(taxablePaise * (taxRate / 100));
-      const lineTotalPaise = taxablePaise + taxPaise;
+      const grandTotalPaise = taxablePaise + taxPaise;
 
       const items = [
         {
@@ -563,15 +563,15 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
           tax_rate: taxRate,
           tax_rate_percent: taxRate,
           tax_paise: taxPaise,
-          line_total_paise: lineTotalPaise,
-          total_paise: lineTotalPaise,
+          line_total_paise: grossPaise,
+          total_paise: grossPaise,
         },
       ];
 
       const inv = await createInvoice(
         items,
         invPaymentMethod,
-        lineTotalPaise,
+        grandTotalPaise,
         undefined,
         invCustName.trim() || "First Test Patron",
         invCustPhone.trim(),
@@ -765,7 +765,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left pt-2">
               <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-900/40 space-y-1">
                 <Receipt className="h-4 w-4 text-indigo-400" />
-                <h4 className="text-xs font-bold text-white">F1 Fast POS Counter</h4>
+                <h4 className="text-xs font-bold text-white">Fast POS Counter (F1)</h4>
                 <p className="text-[11px] text-slate-400">Barcode scanner input, split payments, and 80mm ESC/POS thermal printing.</p>
               </div>
               <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-900/40 space-y-1">

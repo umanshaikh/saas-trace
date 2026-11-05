@@ -65,6 +65,7 @@ export default function InventoryPage() {
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
   const [adjustDelta, setAdjustDelta] = useState(10);
   const [adjustReason, setAdjustReason] = useState<"RESTOCK" | "DAMAGED" | "CORRECTION">("RESTOCK");
+  const [adjustDirection, setAdjustDirection] = useState<"ADD" | "DEDUCT">("ADD");
   const [adjustNote, setAdjustNote] = useState("");
 
   // Product Form state (for Add and Edit)
@@ -294,7 +295,8 @@ export default function InventoryPage() {
   const handleStockAdjustment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!adjustingProduct) return;
-    const delta = adjustReason === "DAMAGED" ? -Math.abs(adjustDelta) : Math.abs(adjustDelta);
+    const isDeduct = adjustReason === "DAMAGED" || (adjustReason === "CORRECTION" && adjustDirection === "DEDUCT");
+    const delta = isDeduct ? -Math.abs(adjustDelta) : Math.abs(adjustDelta);
     adjustStock(adjustingProduct.id, delta, adjustReason, adjustNote || "Manual inventory adjustment");
     setAdjustingProduct(null);
   };
@@ -1062,6 +1064,38 @@ export default function InventoryPage() {
                 <option value="CORRECTION">Manual Inventory Count Correction (±)</option>
               </select>
             </div>
+
+            {adjustReason === "CORRECTION" && (
+              <div>
+                <label className="text-xs font-semibold text-foreground mb-1 block">
+                  Correction Direction
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustDirection("ADD")}
+                    className={`py-1.5 px-3 rounded-lg text-xs font-bold border transition-all ${
+                      adjustDirection === "ADD"
+                        ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/50"
+                        : "bg-background border-input text-muted-foreground"
+                    }`}
+                  >
+                    + Add In Stock
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustDirection("DEDUCT")}
+                    className={`py-1.5 px-3 rounded-lg text-xs font-bold border transition-all ${
+                      adjustDirection === "DEDUCT"
+                        ? "bg-rose-600/20 text-rose-400 border-rose-500/50"
+                        : "bg-background border-input text-muted-foreground"
+                    }`}
+                  >
+                    - Deduct From Stock
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="text-xs font-semibold text-foreground mb-1 block">
