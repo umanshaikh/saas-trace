@@ -115,7 +115,7 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<"en" | "hi" | "mr">("en");
   const [syncStatus, setSyncStatus] = useState<"IDLE" | "SYNCING" | "SYNCED" | "ERROR">("IDLE");
 
-  const [products, setProducts] = useState<Product[]>(DEMO_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>(DEMO_CATEGORIES);
   const [customers, setCustomers] = useState<Customer[]>(DEMO_CUSTOMERS);
   const [invoices, setInvoices] = useState<Invoice[]>(DEMO_INVOICES);
@@ -139,16 +139,11 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // 2. Fetch products from Supabase
+      // 2. Fetch products from Supabase (clean, real products only)
       const { data: dbProducts, error: prodErr } = await supabase.from("products").select("*");
-      if (!prodErr && dbProducts && dbProducts.length > 0) {
-        setProducts((prev) => {
-          const dbIds = new Set(dbProducts.map((p: any) => p.id));
-          const localOnly = prev.filter((p) => !dbIds.has(p.id));
-          const merged = [...dbProducts, ...localOnly];
-          if (typeof window !== "undefined") localStorage.setItem("trace_products", JSON.stringify(merged));
-          return merged;
-        });
+      if (!prodErr && dbProducts) {
+        setProducts(dbProducts);
+        if (typeof window !== "undefined") localStorage.setItem("trace_products", JSON.stringify(dbProducts));
       }
 
       // 3. Fetch categories from Supabase
@@ -174,7 +169,15 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         const savedShops = localStorage.getItem("trace_shops");
         if (savedShops) setAllShops(JSON.parse(savedShops));
         const savedProducts = localStorage.getItem("trace_products");
-        if (savedProducts) setProducts(JSON.parse(savedProducts));
+        if (savedProducts) {
+          const parsed = JSON.parse(savedProducts);
+          // Purge any legacy demo products (e.g. prod_01..prod_06)
+          const customOnly = parsed.filter((p: any) => !p.id.startsWith("prod_0"));
+          setProducts(customOnly);
+          localStorage.setItem("trace_products", JSON.stringify(customOnly));
+        } else {
+          setProducts([]);
+        }
         const savedActiveShopId = localStorage.getItem("trace_active_shop_id");
         if (savedActiveShopId) setActiveShopId(savedActiveShopId);
       } catch (err) {

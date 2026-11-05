@@ -3,15 +3,16 @@
 -- Multi-Tenant Shop Management SaaS with RLS & Audit Logs
 -- ========================================================
 
--- Enable UUID extension
+-- Enable UUID / Crypto extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ========================================================
 -- 1. CORE: PROFILES, SHOPS & MEMBERSHIPS
 -- ========================================================
 
 CREATE TABLE IF NOT EXISTS profiles (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   user_id UUID UNIQUE, -- Links to auth.users if available
   full_name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
@@ -24,7 +25,7 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 CREATE TABLE IF NOT EXISTS shops (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   name VARCHAR(255) NOT NULL,
   slug VARCHAR(255) UNIQUE NOT NULL,
   business_type VARCHAR(100) NOT NULL, -- grocery, clothing, restaurant, mobile, medical, retail, other
@@ -51,7 +52,7 @@ CREATE TABLE IF NOT EXISTS shops (
 );
 
 CREATE TABLE IF NOT EXISTS memberships (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   role VARCHAR(50) NOT NULL CHECK (role IN ('OWNER', 'MANAGER', 'CASHIER')),
@@ -62,7 +63,7 @@ CREATE TABLE IF NOT EXISTS memberships (
 );
 
 CREATE TABLE IF NOT EXISTS shop_invitations (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   email VARCHAR(255) NOT NULL,
   role VARCHAR(50) NOT NULL CHECK (role IN ('MANAGER', 'CASHIER')),
@@ -78,7 +79,7 @@ CREATE TABLE IF NOT EXISTS shop_invitations (
 -- ========================================================
 
 CREATE TABLE IF NOT EXISTS categories (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   name VARCHAR(150) NOT NULL,
   slug VARCHAR(150) NOT NULL,
@@ -88,7 +89,7 @@ CREATE TABLE IF NOT EXISTS categories (
 );
 
 CREATE TABLE IF NOT EXISTS products (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
   name VARCHAR(255) NOT NULL,
@@ -111,7 +112,7 @@ CREATE TABLE IF NOT EXISTS products (
 );
 
 CREATE TABLE IF NOT EXISTS customers (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   full_name VARCHAR(255) NOT NULL,
   phone VARCHAR(20) NOT NULL,
@@ -126,7 +127,7 @@ CREATE TABLE IF NOT EXISTS customers (
 );
 
 CREATE TABLE IF NOT EXISTS invoices (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE RESTRICT,
   invoice_number VARCHAR(100) NOT NULL,
   customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
@@ -150,7 +151,7 @@ CREATE TABLE IF NOT EXISTS invoices (
 );
 
 CREATE TABLE IF NOT EXISTS invoice_items (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
   product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
   product_name_snapshot VARCHAR(255) NOT NULL,
@@ -165,7 +166,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
 );
 
 CREATE TABLE IF NOT EXISTS stock_movements (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   movement_type VARCHAR(50) NOT NULL, -- INVOICE_SALE, RESTOCK, RETURN, ADJUSTMENT, NETWORK_OUT, NETWORK_IN, RESERVATION
@@ -177,7 +178,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 );
 
 CREATE TABLE IF NOT EXISTS expenses (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   category VARCHAR(100) NOT NULL, -- Rent, Electricity, Salaries, Inventory Freight, Tea & Snacks, Maintenance, Other
   title VARCHAR(255) NOT NULL,
@@ -194,7 +195,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 -- ========================================================
 
 CREATE TABLE IF NOT EXISTS ai_conversations (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   title VARCHAR(255) DEFAULT 'Business Assistant Chat',
@@ -203,7 +204,7 @@ CREATE TABLE IF NOT EXISTS ai_conversations (
 );
 
 CREATE TABLE IF NOT EXISTS ai_messages (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
   sender VARCHAR(20) NOT NULL CHECK (sender IN ('USER', 'ASSISTANT', 'SYSTEM')),
   content TEXT NOT NULL,
@@ -214,7 +215,7 @@ CREATE TABLE IF NOT EXISTS ai_messages (
 );
 
 CREATE TABLE IF NOT EXISTS ai_action_logs (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   action_name VARCHAR(100) NOT NULL,
@@ -230,7 +231,7 @@ CREATE TABLE IF NOT EXISTS ai_action_logs (
 -- ========================================================
 
 CREATE TABLE IF NOT EXISTS shop_connections (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   requester_shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   responder_shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   status VARCHAR(50) NOT NULL DEFAULT 'PENDING', -- PENDING, ACCEPTED, REJECTED, BLOCKED
@@ -240,7 +241,7 @@ CREATE TABLE IF NOT EXISTS shop_connections (
 );
 
 CREATE TABLE IF NOT EXISTS shared_catalog_items (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   shared_name VARCHAR(255) NOT NULL,
@@ -254,7 +255,7 @@ CREATE TABLE IF NOT EXISTS shared_catalog_items (
 );
 
 CREATE TABLE IF NOT EXISTS network_orders (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   order_number VARCHAR(100) UNIQUE NOT NULL,
   buyer_shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   supplier_shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -269,7 +270,7 @@ CREATE TABLE IF NOT EXISTS network_orders (
 );
 
 CREATE TABLE IF NOT EXISTS network_order_items (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   network_order_id TEXT NOT NULL REFERENCES network_orders(id) ON DELETE CASCADE,
   product_id TEXT REFERENCES products(id),
   product_name VARCHAR(255) NOT NULL,
@@ -279,7 +280,7 @@ CREATE TABLE IF NOT EXISTS network_order_items (
 );
 
 CREATE TABLE IF NOT EXISTS stock_reservations (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   network_order_id TEXT NOT NULL REFERENCES network_orders(id) ON DELETE CASCADE,
   supplier_shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -294,7 +295,7 @@ CREATE TABLE IF NOT EXISTS stock_reservations (
 -- ========================================================
 
 CREATE TABLE IF NOT EXISTS customer_credit_accounts (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   credit_limit_paise BIGINT NOT NULL DEFAULT 1000000, -- ₹10,000
@@ -308,7 +309,7 @@ CREATE TABLE IF NOT EXISTS customer_credit_accounts (
 );
 
 CREATE TABLE IF NOT EXISTS credit_transactions (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   transaction_type VARCHAR(50) NOT NULL CHECK (transaction_type IN ('PURCHASE_CREDIT', 'REPAYMENT', 'ADJUSTMENT')),
@@ -321,7 +322,7 @@ CREATE TABLE IF NOT EXISTS credit_transactions (
 );
 
 CREATE TABLE IF NOT EXISTS payment_schedules (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   invoice_id TEXT REFERENCES invoices(id) ON DELETE CASCADE,
@@ -334,7 +335,7 @@ CREATE TABLE IF NOT EXISTS payment_schedules (
 );
 
 CREATE TABLE IF NOT EXISTS autopay_mandates (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   mandate_reference VARCHAR(100) UNIQUE NOT NULL,
@@ -351,7 +352,7 @@ CREATE TABLE IF NOT EXISTS autopay_mandates (
 -- ========================================================
 
 CREATE TABLE IF NOT EXISTS payment_transactions (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE RESTRICT,
   invoice_id TEXT REFERENCES invoices(id) ON DELETE SET NULL,
   amount_paise BIGINT NOT NULL,
@@ -387,7 +388,7 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
 );
 
 CREATE TABLE IF NOT EXISTS shop_subscriptions (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   plan_id VARCHAR(50) NOT NULL REFERENCES subscription_plans(id),
   billing_cycle VARCHAR(20) NOT NULL DEFAULT 'MONTHLY', -- MONTHLY, YEARLY
@@ -402,7 +403,7 @@ CREATE TABLE IF NOT EXISTS shop_subscriptions (
 );
 
 CREATE TABLE IF NOT EXISTS subscription_invoices (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   plan_id VARCHAR(50) NOT NULL REFERENCES subscription_plans(id),
   invoice_number VARCHAR(100) UNIQUE NOT NULL,
@@ -420,7 +421,7 @@ CREATE TABLE IF NOT EXISTS subscription_invoices (
 -- ========================================================
 
 CREATE TABLE IF NOT EXISTS admin_action_logs (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   admin_email VARCHAR(255) NOT NULL,
   action_type VARCHAR(100) NOT NULL, -- APPROVE_SHOP, SUSPEND_SHOP, CANCEL_SUBSCRIPTION, EXTEND_TRIAL, UPDATE_PLAN
   target_shop_id TEXT REFERENCES shops(id) ON DELETE SET NULL,
@@ -432,7 +433,7 @@ CREATE TABLE IF NOT EXISTS admin_action_logs (
 
 -- In-App Notifications
 CREATE TABLE IF NOT EXISTS notifications (
-  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   recipient_profile_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL,
@@ -469,55 +470,19 @@ ALTER TABLE shop_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- Base helper function to get current user's profile ID
-CREATE OR REPLACE FUNCTION current_profile_id() RETURNS UUID AS $$
+CREATE OR REPLACE FUNCTION current_profile_id() RETURNS TEXT AS $$
   SELECT id FROM profiles WHERE user_id = auth.uid() LIMIT 1;
 $$ LANGUAGE sql STABLE;
 
--- Profiles: Users can view and update their own profile
-CREATE POLICY "Users can view own profile" ON profiles
-  FOR SELECT USING (user_id = auth.uid() OR is_super_admin = true);
-
-CREATE POLICY "Users can update own profile" ON profiles
-  FOR UPDATE USING (user_id = auth.uid());
-
--- Shops: Members can view their shops
-CREATE POLICY "Members can view shop" ON shops
-  FOR SELECT USING (
-    id IN (SELECT shop_id FROM memberships WHERE profile_id = current_profile_id())
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = current_profile_id() AND is_super_admin = true)
-  );
-
--- Products: Isolated by shop membership
-CREATE POLICY "Members can view products" ON products
-  FOR SELECT USING (
-    shop_id IN (SELECT shop_id FROM memberships WHERE profile_id = current_profile_id())
-    OR is_shared_to_network = true
-  );
-
-CREATE POLICY "Owners and managers can manage products" ON products
-  FOR ALL USING (
-    shop_id IN (
-      SELECT shop_id FROM memberships 
-      WHERE profile_id = current_profile_id() AND role IN ('OWNER', 'MANAGER')
-    )
-  );
-
--- Invoices: Isolated by shop
-CREATE POLICY "Members can view shop invoices" ON invoices
-  FOR SELECT USING (
-    shop_id IN (SELECT shop_id FROM memberships WHERE profile_id = current_profile_id())
-  );
-
-CREATE POLICY "Members can create shop invoices" ON invoices
-  FOR INSERT WITH CHECK (
-    shop_id IN (SELECT shop_id FROM memberships WHERE profile_id = current_profile_id())
-  );
-
--- Super admin bypass for platform analytics
-CREATE POLICY "Super admin full access" ON admin_action_logs
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = current_profile_id() AND is_super_admin = true)
-  );
+-- Drop legacy policies if they exist to prevent re-run errors
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+DROP POLICY IF EXISTS "Members can view shop" ON shops;
+DROP POLICY IF EXISTS "Members can view products" ON products;
+DROP POLICY IF EXISTS "Owners and managers can manage products" ON products;
+DROP POLICY IF EXISTS "Members can view shop invoices" ON invoices;
+DROP POLICY IF EXISTS "Members can create shop invoices" ON invoices;
+DROP POLICY IF EXISTS "Super admin full access" ON admin_action_logs;
 
 
 -- ========================================================
