@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { switchRole, signInWithEmail, resetPassword } = useTrace();
+  const { switchRole, signInWithEmail, resetPassword, onboardingProgress } = useTrace();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,7 +34,11 @@ export default function LoginPage() {
       setErrorMessage(res.error || "Invalid login credentials. Please check your email and password.");
       setIsLoading(false);
     } else {
-      router.push("/dashboard");
+      if (onboardingProgress && !onboardingProgress.isCompleted) {
+        router.push("/onboarding");
+      } else {
+        router.push("/dashboard");
+      }
     }
   };
 

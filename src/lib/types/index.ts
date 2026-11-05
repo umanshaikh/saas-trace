@@ -336,3 +336,68 @@ export interface PurchaseItem {
   line_total_paise: number;
   created_at?: string;
 }
+
+export interface OnboardingStepData {
+  shop?: {
+    name?: string;
+    ownerName?: string;
+    businessCategory?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+  };
+  gst?: {
+    isGstRegistered?: 'YES' | 'NO' | 'LATER';
+    gstin?: string;
+    legalBusinessName?: string;
+    state?: string;
+    registrationType?: 'REGULAR' | 'COMPOSITION';
+  };
+  inventory?: {
+    mode?: 'MANUAL' | 'CSV' | 'SKIPPED';
+    productCount?: number;
+  };
+  employees?: {
+    hasEmployees?: boolean;
+    invitedList?: Array<{ name: string; phone: string; email: string; role: Role; permissions?: string[] }>;
+  };
+  payments?: {
+    acceptCash?: boolean;
+    acceptUpi?: boolean;
+    upiVpa?: string;
+    acceptCard?: boolean;
+    acceptBankTransfer?: boolean;
+    acceptCustomerCredit?: boolean;
+  };
+  firstInvoice?: {
+    invoiceId?: string;
+    invoiceNumber?: string;
+    totalPaise?: number;
+    paymentMethod?: string;
+  };
+}
+
+export interface OnboardingProgress {
+  userId: string;
+  shopId: string;
+  currentStep: number;
+  completedSteps: number[];
+  isCompleted: boolean;
+  stepData?: OnboardingStepData;
+  lastUpdated?: string;
+}
+
+export interface EmployeeInvite {
+  id: string;
+  shopId: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: Role;
+  permissions: string[];
+  status: 'PENDING' | 'ACCEPTED';
+  createdAt: string;
+}

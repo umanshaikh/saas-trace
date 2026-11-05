@@ -18,6 +18,9 @@ import {
   AccessStatus,
   PlatformSettings,
   PrivacySettings,
+  OnboardingProgress,
+  OnboardingStepData,
+  EmployeeInvite,
 } from "../lib/types";
 import {
   DEMO_SHOPS,
@@ -132,6 +135,14 @@ interface TraceContextType {
   updateShopSubscription: (planId: string, cycle: "MONTHLY" | "YEARLY") => void;
   superAdminUpdateShopStatus: (shopId: string, status: AccessStatus, reason?: string) => void;
   markNotificationRead: (id: string) => void;
+  // Onboarding Wizard Engine
+  onboardingProgress: OnboardingProgress;
+  saveOnboardingStep: (step: number, data?: Partial<OnboardingStepData>, markStepComplete?: boolean) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
+  skipOnboardingStep: (step: number) => Promise<void>;
+  employees: EmployeeInvite[];
+  inviteEmployee: (invite: Omit<EmployeeInvite, 'id' | 'createdAt' | 'status'>) => Promise<EmployeeInvite>;
+  removeEmployeeInvite: (id: string) => Promise<void>;
 }
 
 const TraceContext = createContext<TraceContextType | undefined>(undefined);
@@ -160,6 +171,41 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   const [offlineQueue, setOfflineQueue] = useState<Invoice[]>([]);
   const [isSyncingOffline, setIsSyncingOffline] = useState<boolean>(false);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+
+  // Employees & Team Management State
+  const [employees, setEmployees] = useState<EmployeeInvite[]>(() => {
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem(`trace_employees_${activeShopId}`);
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch (e) {}
+      }
+    }
+    return [];
+  });
+
+  // Onboarding Wizard State
+  const [onboardingProgress, setOnboardingProgress] = useState<OnboardingProgress>(() => {
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem(`trace_onboarding_${activeShopId}`);
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch (e) {}
+      }
+    }
+    const isExistingShop = activeShopId.startsWith("shop_0") || activeShopId === "shop_01";
+    return {
+      userId: currentUser?.id || "00000000-0000-0000-0000-000000000001",
+      shopId: activeShopId,
+      currentStep: 1,
+      completedSteps: isExistingShop ? [1, 2, 3, 4, 5, 6, 7, 8] : [],
+      isCompleted: isExistingShop,
+      stepData: {},
+      lastUpdated: new Date().toISOString(),
+    };
+  });
 
   // Sync with Supabase & load local cache on mount
   const syncWithSupabase = async () => {
@@ -518,8 +564,154 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       setActiveShopId(shopId);
       if (typeof window !== "undefined") {
         localStorage.setItem("trace_active_shop_id", shopId);
+        const cachedOnboarding = localStorage.getItem(`trace_onboarding_${shopId}`);
+        if (cachedOnboarding) {
+          try {
+            setOnboardingProgress(JSON.parse(cachedOnboarding));
+          } catch (e) {}
+        }
       }
     }
+  };
+
+  const saveOnboardingStep = async (step: number, data?: Partial<OnboardingStepData>, markStepComplete = true) => {
+    setOnboardingProgress((prev) => {
+      const nextCompleted = markStepComplete && !prev.completedSteps.includes(step)
+        ? [...prev.completedSteps, step]
+        : prev.completedSteps;
+      const nextStep = Math.min(8, Math.max(step + 1, prev.currentStep));
+      const nextData = {
+        ...(prev.stepData || {}),
+        ...(data || {}),
+      };
+      const updated: OnboardingProgress = {
+        ...prev,
+        shopId: activeShopId,
+        userId: currentUser.id || "00000000-0000-0000-0000-000000000001",
+        currentStep: nextStep,
+        completedSteps: nextCompleted,
+        stepData: nextData,
+        lastUpdated: new Date().toISOString(),
+      };
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`trace_onboarding_${activeShopId}`, JSON.stringify(updated));
+      }
+
+      (async () => {
+        try {
+          await supabase.from("onboarding_progress").upsert([
+            {
+              shop_id: activeShopId,
+              user_id: currentUser.id || "00000000-0000-0000-0000-000000000001",
+              current_step: nextStep,
+              completed_steps: nextCompleted,
+              is_completed: prev.isCompleted,
+              step_data: nextData,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+        } catch (err) {
+          console.warn("Supabase onboarding progress sync notice:", err);
+        }
+      })();
+
+      return updated;
+    });
+  };
+
+  const skipOnboardingStep = async (step: number) => {
+    await saveOnboardingStep(step, undefined, false);
+  };
+
+  const completeOnboarding = async () => {
+    setOnboardingProgress((prev) => {
+      const completed: OnboardingProgress = {
+        ...prev,
+        currentStep: 8,
+        completedSteps: [1, 2, 3, 4, 5, 6, 7, 8],
+        isCompleted: true,
+        lastUpdated: new Date().toISOString(),
+      };
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`trace_onboarding_${activeShopId}`, JSON.stringify(completed));
+      }
+
+      (async () => {
+        try {
+          await supabase.from("onboarding_progress").upsert([
+            {
+              shop_id: activeShopId,
+              user_id: currentUser.id || "00000000-0000-0000-0000-000000000001",
+              current_step: 8,
+              completed_steps: [1, 2, 3, 4, 5, 6, 7, 8],
+              is_completed: true,
+              updated_at: new Date().toISOString(),
+            },
+          ]);
+        } catch (err) {
+          console.warn("Supabase onboarding completion notice:", err);
+        }
+      })();
+
+      return completed;
+    });
+    showToast("success", "Setup Complete", "Congratulations! Your shop is ready for live business.");
+  };
+
+  const inviteEmployee = async (invite: Omit<EmployeeInvite, 'id' | 'createdAt' | 'status'>): Promise<EmployeeInvite> => {
+    const newInvite: EmployeeInvite = {
+      id: `inv_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      shopId: activeShopId,
+      name: invite.name,
+      email: invite.email,
+      phone: invite.phone,
+      role: invite.role,
+      permissions: invite.permissions || [],
+      status: "PENDING",
+      createdAt: new Date().toISOString(),
+    };
+    setEmployees((prev) => {
+      const next = [...prev, newInvite];
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`trace_employees_${activeShopId}`, JSON.stringify(next));
+      }
+      return next;
+    });
+
+    (async () => {
+      try {
+        await supabase.from("shop_invitations").insert([
+          {
+            shop_id: activeShopId,
+            email: invite.email,
+            role: invite.role,
+            token: newInvite.id,
+            expires_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+            status: "PENDING",
+          },
+        ]);
+      } catch (e) {
+        console.warn("Supabase employee invite notice:", e);
+      }
+    })();
+
+    showToast("success", "Invitation Created", `Invitation queued for ${invite.name} (${invite.role}).`);
+    return newInvite;
+  };
+
+  const removeEmployeeInvite = async (id: string) => {
+    setEmployees((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`trace_employees_${activeShopId}`, JSON.stringify(next));
+      }
+      return next;
+    });
+    (async () => {
+      try {
+        await supabase.from("shop_invitations").delete().eq("token", id);
+      } catch (e) {}
+    })();
   };
 
   const [toasts, setToasts] = useState<{ id: string; type: "success" | "error" | "info"; title: string; message?: string }[]>([]);
@@ -625,6 +817,32 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
     setActiveShopId(newShop.id);
+
+    // Initialize fresh onboarding progress for new shop
+    const initialOnboarding: OnboardingProgress = {
+      userId: ownerId,
+      shopId: newShop.id,
+      currentStep: 1,
+      completedSteps: [],
+      isCompleted: false,
+      stepData: {
+        shop: {
+          name: data.name,
+          businessCategory: data.business_type,
+          city: data.city,
+          email: data.email,
+          phone: data.phone,
+          address: data.address_line1,
+          state: data.state,
+          pincode: data.pincode,
+        },
+      },
+      lastUpdated: new Date().toISOString(),
+    };
+    setOnboardingProgress(initialOnboarding);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`trace_onboarding_${newShop.id}`, JSON.stringify(initialOnboarding));
+    }
 
     try {
       const { error } = await supabase.from("shops").insert([
@@ -1526,6 +1744,14 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         updateShopSubscription,
         superAdminUpdateShopStatus,
         markNotificationRead,
+        // Onboarding Wizard
+        onboardingProgress,
+        saveOnboardingStep,
+        completeOnboarding,
+        skipOnboardingStep,
+        employees,
+        inviteEmployee,
+        removeEmployeeInvite,
       }}
     >
       {children}

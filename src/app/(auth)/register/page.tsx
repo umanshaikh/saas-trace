@@ -32,7 +32,7 @@ export default function RegisterPage() {
         setIsSubmitting(false);
         return;
       }
-      router.push("/dashboard");
+      router.push("/onboarding");
     } catch (err: any) {
       setErrorMessage(err.message || "Failed to create account");
       setIsSubmitting(false);
