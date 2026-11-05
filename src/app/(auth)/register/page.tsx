@@ -3,21 +3,40 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Sparkles, Store, Mail, Lock, Phone, MapPin } from "lucide-react";
+import { Sparkles, Store, Mail, Lock, Phone, MapPin, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTrace } from "@/context/TraceContext";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { registerNewShop } = useTrace();
 
   const [shopName, setShopName] = useState("");
   const [businessType, setBusinessType] = useState("GROCERY");
   const [city, setCity] = useState("Mumbai");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    router.push("/dashboard");
+    if (!shopName || !email) return;
+
+    setIsSubmitting(true);
+    try {
+      await registerNewShop({
+        name: shopName,
+        business_type: businessType,
+        city,
+        email,
+      });
+      router.push("/dashboard");
+    } catch (err) {
+      console.error("Registration error:", err);
+      router.push("/dashboard");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -115,8 +134,20 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <Button type="submit" variant="default" className="w-full font-bold bg-indigo-600 hover:bg-indigo-500">
-            Create Store & Start 30-Day Free Trial
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            variant="default"
+            className="w-full font-bold bg-indigo-600 hover:bg-indigo-500 gap-2"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Creating Store & Connecting Database...</span>
+              </>
+            ) : (
+              <span>Create Store & Launch Counter</span>
+            )}
           </Button>
         </form>
 

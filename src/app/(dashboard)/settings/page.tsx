@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default function SettingsPage() {
-  const { activeShop } = useTrace();
+  const { activeShop, updateActiveShop } = useTrace();
 
   const [shopName, setShopName] = useState(activeShop.name);
   const [city, setCity] = useState(activeShop.city);
@@ -25,10 +25,15 @@ export default function SettingsPage() {
   );
   const [isSaved, setIsSaved] = useState(false);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    await updateActiveShop({
+      name: shopName,
+      city: city,
+      gstin: gstin,
+    });
     setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+    setTimeout(() => setIsSaved(false), 4000);
   };
 
   return (
@@ -149,11 +154,13 @@ export default function SettingsPage() {
         {/* Save Bar */}
         <div className="flex items-center justify-between">
           {isSaved ? (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
-              <CheckCircle2 className="h-4 w-4" /> Configuration successfully saved!
+            <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-semibold animate-in fade-in">
+              <CheckCircle2 className="h-4 w-4" /> Store identity successfully saved and synced to database!
             </span>
           ) : (
-            <span />
+            <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Shield className="h-3.5 w-3.5 text-emerald-500" /> Auto-sync active with Supabase cloud database
+            </span>
           )}
 
           <Button type="submit" variant="default" className="gap-2 font-bold px-6">
