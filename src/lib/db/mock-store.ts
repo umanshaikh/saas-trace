@@ -61,313 +61,59 @@ export const INITIAL_PLANS: SubscriptionPlan[] = [
 
 export const DEMO_PROFILES: Profile[] = [
   {
-    id: 'usr_owner_01',
-    full_name: 'Arjun Sharma (Shop Owner)',
-    email: 'arjun@apnasupermarket.in',
-    phone: '+919876543210',
-    preferred_language: 'en',
-    is_super_admin: false,
-  },
-  {
-    id: 'usr_manager_01',
-    full_name: 'Priya Patel (Floor Manager)',
-    email: 'priya@apnasupermarket.in',
-    phone: '+919876543211',
-    preferred_language: 'hi',
-    is_super_admin: false,
-  },
-  {
-    id: 'usr_cashier_01',
-    full_name: 'Ramesh Kumar (Billing Cashier)',
-    email: 'ramesh@apnasupermarket.in',
-    phone: '+919876543212',
-    preferred_language: 'mr',
-    is_super_admin: false,
-  },
-  {
-    id: 'usr_admin_01',
-    full_name: 'TRACE Super Admin',
-    email: 'superadmin@trace.business',
+    id: 'usr_default',
+    full_name: 'Store Owner',
+    email: 'owner@business.com',
     phone: '+919999999999',
     preferred_language: 'en',
-    is_super_admin: true,
+    is_super_admin: false,
   },
 ];
 
 export const DEMO_SHOPS: Shop[] = [
   {
-    id: 'shop_01',
-    name: 'Apna Supermarket & Provisions',
-    slug: 'apna-supermarket',
-    business_type: 'grocery',
-    owner_id: 'usr_owner_01',
-    gstin: '27AABCU9603R1ZM',
-    phone: '+919876543210',
-    email: 'billing@apnasupermarket.in',
-    address_line1: 'Shop No. 4, Shivaji Chowk Market Complex',
-    city: 'Pune',
-    state: 'Maharashtra',
-    pincode: '411001',
-    currency: 'INR',
-    currency_symbol: '₹',
-    is_verified: true,
-    access_status: 'ACTIVE',
-    invite_code: 'APNA2026',
-    created_at: new Date(Date.now() - 60 * 86400000).toISOString(),
-  },
-  {
-    id: 'shop_02',
-    name: 'Vogue Men & Women Fashion',
-    slug: 'vogue-fashion',
-    business_type: 'clothing',
-    owner_id: 'usr_owner_01',
-    gstin: '27BBDCU1234K1ZX',
-    phone: '+919876543299',
-    email: 'orders@voguefashion.in',
-    address_line1: 'Plot 12, Commercial High Street, Bandra West',
+    id: 'shop_default',
+    name: 'My Store',
+    slug: 'my-store',
+    business_type: 'retail',
+    owner_id: 'usr_default',
+    gstin: '',
+    phone: '+919999999999',
+    email: 'owner@business.com',
+    address_line1: 'Shop No. 1, Main Market Road',
     city: 'Mumbai',
     state: 'Maharashtra',
-    pincode: '400050',
+    pincode: '400001',
     currency: 'INR',
     currency_symbol: '₹',
     is_verified: true,
     access_status: 'ACTIVE',
-    invite_code: 'VOGUE26',
-    created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
-  },
-  {
-    id: 'shop_03',
-    name: 'Sanjivani Medical & Healthcare Store',
-    slug: 'sanjivani-medical',
-    business_type: 'medical',
-    owner_id: 'usr_owner_01',
-    gstin: '27CCDCU5678M1ZZ',
-    phone: '+919876543288',
-    email: 'care@sanjivanimed.in',
-    address_line1: 'Opposite Civil Hospital, Station Road',
-    city: 'Thane',
-    state: 'Maharashtra',
-    pincode: '400601',
-    currency: 'INR',
-    currency_symbol: '₹',
-    is_verified: true,
-    access_status: 'ACTIVE',
-    invite_code: 'MEDCARE1',
-    created_at: new Date(Date.now() - 15 * 86400000).toISOString(),
+    invite_code: 'TRACE01',
+    created_at: new Date().toISOString(),
   },
 ];
 
 export const DEMO_MEMBERSHIPS: Membership[] = [
   {
-    id: 'mem_01',
-    shop_id: 'shop_01',
-    profile_id: 'usr_owner_01',
+    id: 'mem_default',
+    shop_id: 'shop_default',
+    profile_id: 'usr_default',
     role: 'OWNER',
     is_active: true,
     profile: DEMO_PROFILES[0],
     shop: DEMO_SHOPS[0],
-  },
-  {
-    id: 'mem_02',
-    shop_id: 'shop_01',
-    profile_id: 'usr_manager_01',
-    role: 'MANAGER',
-    is_active: true,
-    profile: DEMO_PROFILES[1],
-    shop: DEMO_SHOPS[0],
-  },
-  {
-    id: 'mem_03',
-    shop_id: 'shop_01',
-    profile_id: 'usr_cashier_01',
-    role: 'CASHIER',
-    is_active: true,
-    profile: DEMO_PROFILES[2],
-    shop: DEMO_SHOPS[0],
-  },
-  {
-    id: 'mem_04',
-    shop_id: 'shop_02',
-    profile_id: 'usr_owner_01',
-    role: 'OWNER',
-    is_active: true,
-    profile: DEMO_PROFILES[0],
-    shop: DEMO_SHOPS[1],
   },
 ];
 
 export const DEMO_CATEGORIES: Category[] = [
-  { id: 'cat_01', shop_id: 'shop_01', name: 'Dairy & Bakery', slug: 'dairy-bakery' },
-  { id: 'cat_02', shop_id: 'shop_01', name: 'Grains & Pulses', slug: 'grains-pulses' },
-  { id: 'cat_03', shop_id: 'shop_01', name: 'Snacks & Packaged Food', slug: 'snacks-packaged' },
-  { id: 'cat_04', shop_id: 'shop_01', name: 'Beverages & Juices', slug: 'beverages' },
-  { id: 'cat_05', shop_id: 'shop_01', name: 'Household & Cleaning', slug: 'household' },
+  { id: 'cat_general', shop_id: 'shop_default', name: 'General', slug: 'general' },
 ];
 
 export const DEMO_PRODUCTS: Product[] = [];
-
-export const DEMO_CUSTOMERS: Customer[] = [
-  {
-    id: 'cust_01',
-    shop_id: 'shop_01',
-    full_name: 'Rahul Deshmukh',
-    phone: '9822012345',
-    email: 'rahul.deshmukh@gmail.com',
-    address: 'B-402, Greenfield Residences, MG Road, Pune',
-    credit_limit_paise: 1500000, // ₹15,000 credit limit
-    total_outstanding_paise: 345000, // ₹3,450 outstanding PayLater balance
-    credit_status: 'GOOD',
-    created_at: new Date(Date.now() - 40 * 86400000).toISOString(),
-  },
-  {
-    id: 'cust_02',
-    shop_id: 'shop_01',
-    full_name: 'Meena Sharma',
-    phone: '9890123456',
-    email: 'meena.s@outlook.com',
-    address: 'Flat 12, Sunshine Apts, Model Colony, Pune',
-    credit_limit_paise: 800000, // ₹8,000
-    total_outstanding_paise: 120000, // ₹1,200 outstanding
-    credit_status: 'GOOD',
-    created_at: new Date(Date.now() - 25 * 86400000).toISOString(),
-  },
-  {
-    id: 'cust_03',
-    shop_id: 'shop_01',
-    full_name: 'Vikas Kadam',
-    phone: '9422998877',
-    email: 'vikas.kadam@yahoo.in',
-    address: 'Plot 8, Shivaji Nagar, Pune',
-    credit_limit_paise: 500000, // ₹5,000
-    total_outstanding_paise: 480000, // ₹4,800 (NEAR LIMIT)
-    credit_status: 'WARNING',
-    created_at: new Date(Date.now() - 10 * 86400000).toISOString(),
-  },
-];
-
-export const DEMO_INVOICES: Invoice[] = [
-  {
-    id: 'inv_01',
-    shop_id: 'shop_01',
-    invoice_number: 'TRC-PUN-00101',
-    customer_id: 'cust_01',
-    customer_name_snapshot: 'Rahul Deshmukh',
-    customer_phone_snapshot: '9822012345',
-    subtotal_paise: 64000, // ₹640.00
-    discount_paise: 2000, // ₹20.00
-    tax_paise: 3000, // ₹30.00
-    total_amount_paise: 65000, // ₹650.00
-    paid_amount_paise: 65000,
-    balance_amount_paise: 0,
-    payment_status: 'PAID',
-    payment_method: 'UPI',
-    status: 'COMPLETED',
-    created_at: new Date(Date.now() - 2 * 3600000).toISOString(),
-    items: [
-      {
-        product_id: 'prod_01',
-        product_name_snapshot: 'Amul Taaza Homogenised Toned Milk (1L)',
-        unit_snapshot: 'packet',
-        unit_price_paise: 7200,
-        tax_rate_percent: 0,
-        tax_paise: 0,
-        quantity: 2,
-        line_total_paise: 14400,
-      },
-      {
-        product_id: 'prod_03',
-        product_name_snapshot: 'India Gate Basmati Rice Premium (5kg)',
-        unit_snapshot: 'packet',
-        unit_price_paise: 52000,
-        tax_rate_percent: 5,
-        tax_paise: 2600,
-        quantity: 1,
-        line_total_paise: 52000,
-      },
-    ],
-  },
-  {
-    id: 'inv_02',
-    shop_id: 'shop_01',
-    invoice_number: 'TRC-PUN-00102',
-    customer_id: 'cust_01',
-    customer_name_snapshot: 'Rahul Deshmukh',
-    customer_phone_snapshot: '9822012345',
-    subtotal_paise: 250000, // ₹2,500.00
-    discount_paise: 0,
-    tax_paise: 12500,
-    total_amount_paise: 262500, // ₹2,625.00
-    paid_amount_paise: 100000, // Paid ₹1,000 cash
-    balance_amount_paise: 162500, // Remaining ₹1,625 added to PayLater
-    payment_status: 'PARTIALLY_PAID',
-    payment_method: 'SPLIT',
-    status: 'COMPLETED',
-    created_at: new Date(Date.now() - 6 * 3600000).toISOString(),
-  },
-];
-
-export const DEMO_EXPENSES: Expense[] = [
-  {
-    id: 'exp_01',
-    shop_id: 'shop_01',
-    category: 'Electricity',
-    title: 'MSEDCL Monthly Shop Power Bill',
-    amount_paise: 425000, // ₹4,250.00
-    payment_method: 'UPI',
-    incurred_date: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'exp_02',
-    shop_id: 'shop_01',
-    category: 'Tea & Refreshments',
-    title: 'Staff Afternoon Tea & Snacks',
-    amount_paise: 18000, // ₹180.00
-    payment_method: 'CASH',
-    incurred_date: new Date().toISOString().split('T')[0],
-  },
-  {
-    id: 'exp_03',
-    shop_id: 'shop_01',
-    category: 'Inventory Freight',
-    title: 'Tempo Delivery Charges from Market Yard',
-    amount_paise: 65000, // ₹650.00
-    payment_method: 'CASH',
-    incurred_date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-  },
-];
-
-export const DEMO_NOTIFICATIONS: InAppNotification[] = [
-  {
-    id: 'notif_01',
-    shop_id: 'shop_01',
-    title: 'Critical Low Stock Alert',
-    message: 'Maggi 2-Minute Noodles has only 4 packets remaining (threshold: 12).',
-    type: 'LOW_STOCK',
-    action_url: '/inventory',
-    is_read: false,
-    created_at: new Date(Date.now() - 30 * 60000).toISOString(),
-  },
-  {
-    id: 'notif_02',
-    shop_id: 'shop_01',
-    title: 'Tata Dal Low Stock',
-    message: 'Tata Sampann Toor Dal is down to 2 packets. Consider requesting stock via TRACE Network.',
-    type: 'LOW_STOCK',
-    action_url: '/network',
-    is_read: false,
-    created_at: new Date(Date.now() - 120 * 60000).toISOString(),
-  },
-  {
-    id: 'notif_03',
-    shop_id: 'shop_01',
-    title: 'PayLater Overdue Reminder',
-    message: 'Vikas Kadam has an outstanding balance of ₹4,800 exceeding normal terms.',
-    type: 'PAYMENT_OVERDUE',
-    action_url: '/paylater',
-    is_read: false,
-    created_at: new Date(Date.now() - 4 * 3600000).toISOString(),
-  },
-];
+export const DEMO_CUSTOMERS: Customer[] = [];
+export const DEMO_INVOICES: Invoice[] = [];
+export const DEMO_EXPENSES: Expense[] = [];
+export const DEMO_NOTIFICATIONS: InAppNotification[] = [];
 
 // Ensure full dual-property compatibility across POS, Inventory & PayLater
 DEMO_PRODUCTS.forEach((p) => {
@@ -390,4 +136,3 @@ DEMO_INVOICES.forEach((inv) => {
     i.total_paise = i.line_total_paise;
   });
 });
-

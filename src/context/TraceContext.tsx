@@ -166,20 +166,25 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
-        const savedShops = localStorage.getItem("trace_shops");
-        if (savedShops) setAllShops(JSON.parse(savedShops));
-        const savedProducts = localStorage.getItem("trace_products");
-        if (savedProducts) {
-          const parsed = JSON.parse(savedProducts);
-          // Purge any legacy demo products (e.g. prod_01..prod_06)
-          const customOnly = parsed.filter((p: any) => !p.id.startsWith("prod_0"));
-          setProducts(customOnly);
-          localStorage.setItem("trace_products", JSON.stringify(customOnly));
+        // One-time purge of legacy mock data from browser localStorage
+        if (!localStorage.getItem("trace_cleaned_all_mock_v3")) {
+          localStorage.removeItem("trace_shops");
+          localStorage.removeItem("trace_products");
+          localStorage.removeItem("trace_customers");
+          localStorage.removeItem("trace_invoices");
+          localStorage.removeItem("trace_expenses");
+          localStorage.removeItem("trace_notifications");
+          localStorage.removeItem("trace_network_orders");
+          localStorage.removeItem("trace_active_shop_id");
+          localStorage.setItem("trace_cleaned_all_mock_v3", "true");
         } else {
-          setProducts([]);
+          const savedShops = localStorage.getItem("trace_shops");
+          if (savedShops) setAllShops(JSON.parse(savedShops));
+          const savedProducts = localStorage.getItem("trace_products");
+          if (savedProducts) setProducts(JSON.parse(savedProducts));
+          const savedActiveShopId = localStorage.getItem("trace_active_shop_id");
+          if (savedActiveShopId) setActiveShopId(savedActiveShopId);
         }
-        const savedActiveShopId = localStorage.getItem("trace_active_shop_id");
-        if (savedActiveShopId) setActiveShopId(savedActiveShopId);
       } catch (err) {
         console.warn("Failed to load local storage cache:", err);
       }
@@ -188,35 +193,15 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const [subscriptions, setSubscriptions] = useState<Record<string, ShopSubscription>>({
-    shop_01: {
-      id: "sub_01",
-      shop_id: "shop_01",
-      plan_id: "pro",
-      billing_cycle: "MONTHLY",
-      status: "ACTIVE",
-      starts_at: new Date(Date.now() - 15 * 86400000).toISOString(),
-      current_period_ends_at: new Date(Date.now() + 15 * 86400000).toISOString(),
-      plan: INITIAL_PLANS.find((p) => p.id === "pro"),
-    },
-    shop_02: {
-      id: "sub_02",
-      shop_id: "shop_02",
-      plan_id: "business",
-      billing_cycle: "YEARLY",
-      status: "ACTIVE",
-      starts_at: new Date(Date.now() - 60 * 86400000).toISOString(),
-      current_period_ends_at: new Date(Date.now() + 305 * 86400000).toISOString(),
-      plan: INITIAL_PLANS.find((p) => p.id === "business"),
-    },
-    shop_03: {
-      id: "sub_03",
-      shop_id: "shop_03",
+    shop_default: {
+      id: "sub_default",
+      shop_id: "shop_default",
       plan_id: "starter",
       billing_cycle: "MONTHLY",
       status: "ACTIVE",
-      starts_at: new Date(Date.now() - 5 * 86400000).toISOString(),
-      current_period_ends_at: new Date(Date.now() + 25 * 86400000).toISOString(),
-      plan: INITIAL_PLANS.find((p) => p.id === "starter"),
+      starts_at: new Date().toISOString(),
+      current_period_ends_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      plan: INITIAL_PLANS[0],
     },
   });
 
@@ -288,29 +273,7 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
-  const [networkOrders, setNetworkOrders] = useState<NetworkOrder[]>([
-    {
-      id: "net_01",
-      order_number: "NET-ORD-2026-0041",
-      buyer_shop_id: "shop_01",
-      supplier_shop_id: "shop_02",
-      buyer_shop_name: "Apna Supermarket & Provisions",
-      supplier_shop_name: "Vogue Men & Women Fashion",
-      status: "ACCEPTED",
-      delivery_type: "PICKUP",
-      subtotal_paise: 240000,
-      notes: "Urgent customer pickup required for evening festival event",
-      created_at: new Date(Date.now() - 4 * 3600000).toISOString(),
-      items: [
-        {
-          product_name: "Cotton Formal White Shirt (Size 40)",
-          unit_price_paise: 120000,
-          quantity: 2,
-          line_total_paise: 240000,
-        },
-      ],
-    },
-  ]);
+  const [networkOrders, setNetworkOrders] = useState<NetworkOrder[]>([]);
 
   const activeShop = allShops.find((s) => s.id === activeShopId) || allShops[0];
   const activeSubscription = subscriptions[activeShop.id] || {
