@@ -10,15 +10,16 @@ const nextConfig = {
     ],
   },
   async redirects() {
+    const adminUrl = process.env.ADMIN_PANEL_URL || 'http://localhost:3001';
     return [
       {
         source: '/super-admin',
-        destination: 'http://localhost:3001',
+        destination: adminUrl,
         permanent: false,
       },
       {
         source: '/super-admin/:path*',
-        destination: 'http://localhost:3001/:path*',
+        destination: `${adminUrl}/:path*`,
         permanent: false,
       },
     ];
