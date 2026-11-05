@@ -1,4 +1,4 @@
-export type Role = 'OWNER' | 'MANAGER' | 'CASHIER';
+export type Role = 'OWNER' | 'MANAGER' | 'CASHIER' | 'STAFF';
 
 export type ShopBusinessType = 
   | 'grocery'
@@ -282,4 +282,51 @@ export interface PrivacySettings {
   sessionTimeoutMinutes: number;
   anonymizeDeletedMerchants: boolean;
   rlsAuditStatus: 'VERIFIED' | 'PENDING';
+}
+
+export interface Supplier {
+  id: string;
+  shop_id: string;
+  name: string;
+  contact_person?: string;
+  phone: string;
+  email?: string;
+  gstin?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  is_active: boolean;
+  created_at?: string;
+}
+
+export interface Purchase {
+  id: string;
+  shop_id: string;
+  supplier_id?: string;
+  supplier_name_snapshot?: string;
+  invoice_number: string;
+  purchase_date: string;
+  subtotal_paise: number;
+  tax_paise: number;
+  total_amount_paise: number;
+  paid_amount_paise: number;
+  payment_status: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID';
+  payment_method?: string;
+  notes?: string;
+  created_by?: string;
+  created_at?: string;
+  items?: PurchaseItem[];
+}
+
+export interface PurchaseItem {
+  id: string;
+  purchase_id: string;
+  product_id?: string;
+  product_name_snapshot: string;
+  quantity: number;
+  unit_cost_paise: number;
+  tax_rate_percent: number;
+  line_total_paise: number;
+  created_at?: string;
 }

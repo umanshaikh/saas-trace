@@ -17,6 +17,11 @@ import {
   Layers,
   ArrowUpDown,
   Filter,
+  Sparkles,
+  Image as ImageIcon,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +39,7 @@ export default function InventoryPage() {
     updateProduct,
     deleteProduct,
     adjustStock,
+    addCategory,
   } = useTrace();
 
   const shopProducts = products.filter((p) => p.shop_id === activeShop.id);
@@ -56,12 +62,24 @@ export default function InventoryPage() {
   const [formCategory, setFormCategory] = useState(shopCategories[0]?.id || "");
   const [formSku, setFormSku] = useState("");
   const [formBarcode, setFormBarcode] = useState("");
+  const [formImageUrl, setFormImageUrl] = useState("");
   const [formCostRupees, setFormCostRupees] = useState("");
   const [formSellingRupees, setFormSellingRupees] = useState("");
   const [formStock, setFormStock] = useState(20);
   const [formThreshold, setFormThreshold] = useState(5);
   const [formUnit, setFormUnit] = useState<any>("PIECE");
   const [formTaxRate, setFormTaxRate] = useState(5);
+
+  // Inline Category Creation Modal
+  const [isNewCategoryModalOpen, setIsNewCategoryModalOpen] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatDesc, setNewCatDesc] = useState("");
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+
+  // Stock Movement Audit Log Modal
+  const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
+  const [stockMovements, setStockMovements] = useState<any[]>([]);
+  const [isLoadingMovements, setIsLoadingMovements] = useState(false);
 
   const filteredProducts = shopProducts.filter((p) => {
     const matchesSearch =
@@ -84,6 +102,7 @@ export default function InventoryPage() {
     setFormCategory(shopCategories[0]?.id || "");
     setFormSku(`SKU-${Math.floor(1000 + Math.random() * 9000)}`);
     setFormBarcode(`890${Math.floor(100000000 + Math.random() * 900000000)}`);
+    setFormImageUrl("");
     setFormCostRupees("50");
     setFormSellingRupees("80");
     setFormStock(25);
@@ -99,12 +118,26 @@ export default function InventoryPage() {
     setFormCategory(p.category_id || shopCategories[0]?.id || "");
     setFormSku(p.sku || "");
     setFormBarcode(p.barcode || "");
+    setFormImageUrl(p.image_url || "");
     setFormCostRupees(((p.cost_price_paise ?? p.purchase_price_paise ?? 0) / 100).toString());
     setFormSellingRupees((p.selling_price_paise / 100).toString());
     setFormStock(p.stock_quantity ?? p.current_stock ?? 0);
     setFormThreshold(p.low_stock_threshold);
     setFormUnit(p.unit);
     setFormTaxRate(p.tax_rate ?? p.tax_rate_percent ?? 0);
+  };
+
+  const generateEAN13 = () => {
+    const raw = "890" + Math.floor(100000000 + Math.random() * 900000000).toString();
+    setFormBarcode(raw);
+  };
+
+  const generateSKU = () => {
+    const prefix = formName
+      ? formName.substring(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, "ITM")
+      : "SKU";
+    const random = Math.floor(1000 + Math.random() * 9000);
+    setFormSku(`${prefix}-${random}`);
   };
 
   const handleSaveProduct = (e: React.FormEvent) => {
@@ -117,12 +150,16 @@ export default function InventoryPage() {
         category_id: formCategory,
         sku: formSku,
         barcode: formBarcode,
+        image_url: formImageUrl.trim() || undefined,
         cost_price_paise: rupeesToPaise(Number(formCostRupees)),
+        purchase_price_paise: rupeesToPaise(Number(formCostRupees)),
         selling_price_paise: rupeesToPaise(Number(formSellingRupees)),
         stock_quantity: Number(formStock),
+        current_stock: Number(formStock),
         low_stock_threshold: Number(formThreshold),
         unit: formUnit,
         tax_rate: Number(formTaxRate),
+        tax_rate_percent: Number(formTaxRate),
       });
       setEditingProduct(null);
     } else {
@@ -131,12 +168,16 @@ export default function InventoryPage() {
         category_id: formCategory,
         sku: formSku,
         barcode: formBarcode,
+        image_url: formImageUrl.trim() || undefined,
         cost_price_paise: rupeesToPaise(Number(formCostRupees)),
+        purchase_price_paise: rupeesToPaise(Number(formCostRupees)),
         selling_price_paise: rupeesToPaise(Number(formSellingRupees)),
         stock_quantity: Number(formStock),
+        current_stock: Number(formStock),
         low_stock_threshold: Number(formThreshold),
         unit: formUnit,
         tax_rate: Number(formTaxRate),
+        tax_rate_percent: Number(formTaxRate),
       });
       setIsAddModalOpen(false);
     }
@@ -150,6 +191,38 @@ export default function InventoryPage() {
     setAdjustingProduct(null);
   };
 
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCatName.trim() || isCreatingCategory) return;
+    setIsCreatingCategory(true);
+
+    try {
+      const created = await addCategory(newCatName.trim(), newCatDesc.trim());
+      setFormCategory(created.id);
+      setIsNewCategoryModalOpen(false);
+      setNewCatName("");
+      setNewCatDesc("");
+    } catch (err: any) {
+      alert(err.message || "Failed to create category");
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  };
+
+  const openMovementsLog = async () => {
+    setIsMovementsModalOpen(true);
+    setIsLoadingMovements(true);
+    try {
+      const res = await fetch(`/api/inventory/adjust?shopId=${activeShop.id}`);
+      const data = await res.json();
+      setStockMovements(data.movements || []);
+    } catch (e) {
+      console.warn("Failed to load stock movements:", e);
+    } finally {
+      setIsLoadingMovements(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* Header */}
@@ -157,20 +230,26 @@ export default function InventoryPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Package className="h-6 w-6 text-indigo-500" />
-            Inventory & Stock Management
+            Inventory & Stock Catalog
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             Manage product SKUs, wholesale & retail pricing, barcodes, and automated low-stock safety thresholds.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            Supabase Auto-Sync
-          </span>
+        <div className="flex items-center gap-2.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openMovementsLog}
+            className="gap-1.5 text-xs border-border/80"
+          >
+            <History className="h-4 w-4 text-indigo-500" />
+            <span>Stock Audit Trail</span>
+          </Button>
+
           {userRole !== "CASHIER" && (
-            <Button variant="default" onClick={openAddModal} className="gap-2 shadow-sm">
+            <Button variant="default" size="sm" onClick={openAddModal} className="gap-2 shadow-sm text-xs font-bold">
               <Plus className="h-4 w-4" />
               <span>Add New Product</span>
             </Button>
@@ -242,7 +321,7 @@ export default function InventoryPage() {
           <table className="w-full text-left text-xs">
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border/60">
               <tr>
-                <th className="py-3 px-4 font-semibold">Product Name</th>
+                <th className="py-3 px-4 font-semibold">Product</th>
                 <th className="py-3 px-4 font-semibold">SKU & Barcode</th>
                 <th className="py-3 px-4 font-semibold text-right">Cost Price</th>
                 <th className="py-3 px-4 font-semibold text-right">Selling Price</th>
@@ -266,8 +345,23 @@ export default function InventoryPage() {
                 return (
                   <tr key={prod.id} className="hover:bg-accent/40 transition-colors">
                     <td className="py-3 px-4">
-                      <p className="font-semibold text-foreground text-sm">{prod.name}</p>
-                      <p className="text-[10px] text-muted-foreground">Unit: {prod.unit}</p>
+                      <div className="flex items-center gap-2.5">
+                        {prod.image_url ? (
+                          <img
+                            src={prod.image_url}
+                            alt={prod.name}
+                            className="h-8 w-8 rounded-lg object-cover border border-border/60 bg-muted shrink-0"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
+                            <Package className="h-4 w-4 text-indigo-500" />
+                          </div>
+                        )}
+                        <div>
+                          <p className="font-semibold text-foreground text-sm">{prod.name}</p>
+                          <p className="text-[10px] text-muted-foreground">Unit: {prod.unit || "pcs"}</p>
+                        </div>
+                      </div>
                     </td>
 
                     <td className="py-3 px-4 font-mono">
@@ -345,7 +439,11 @@ export default function InventoryPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() => {
-                                if (confirm(`Are you sure you want to delete ${prod.name}?`)) {
+                                if (
+                                  confirm(
+                                    `Are you sure you want to delete "${prod.name}"?\n\nSafeguard: If this product has historical sales invoices, it will be safely deactivated (soft-deleted) to protect accounting integrity.`
+                                  )
+                                ) {
                                   deleteProduct(prod.id);
                                 }
                               }}
@@ -398,11 +496,49 @@ export default function InventoryPage() {
             />
           </div>
 
+          {/* Product Image URL with Live Thumbnail Preview */}
+          <div>
+            <label className="text-xs font-semibold text-foreground mb-1 block flex items-center justify-between">
+              <span>Product Image URL (Optional)</span>
+              {formImageUrl && (
+                <span className="text-[10px] text-emerald-400 font-normal">Preview Loaded</span>
+              )}
+            </label>
+            <div className="flex gap-2 items-center">
+              <input
+                type="url"
+                value={formImageUrl}
+                onChange={(e) => setFormImageUrl(e.target.value)}
+                placeholder="https://example.com/images/product.jpg"
+                className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              {formImageUrl ? (
+                <img
+                  src={formImageUrl}
+                  alt="Preview"
+                  className="h-9 w-9 rounded-lg object-cover border border-border/80 bg-muted shrink-0"
+                  onError={(e) => (e.currentTarget.style.display = "none")}
+                />
+              ) : (
+                <div className="h-9 w-9 rounded-lg border border-border/60 bg-muted/40 flex items-center justify-center shrink-0">
+                  <ImageIcon className="h-4 w-4 text-muted-foreground/50" />
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-foreground mb-1 block">
-                Category
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-foreground">Category</label>
+                <button
+                  type="button"
+                  onClick={() => setIsNewCategoryModalOpen(true)}
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold"
+                >
+                  + New Category
+                </button>
+              </div>
               <select
                 value={formCategory}
                 onChange={(e) => setFormCategory(e.target.value)}
@@ -431,33 +567,49 @@ export default function InventoryPage() {
                 <option value="LITRE">Litre (L)</option>
                 <option value="PACK">Packet / Pouch</option>
                 <option value="BOX">Carton / Box</option>
+                <option value="METER">Meter (m)</option>
               </select>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-foreground mb-1 block">
-                SKU Code
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-foreground">SKU Code</label>
+                <button
+                  type="button"
+                  onClick={generateSKU}
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 flex items-center gap-0.5"
+                >
+                  <Sparkles className="h-2.5 w-2.5" /> Auto SKU
+                </button>
+              </div>
               <input
                 type="text"
                 value={formSku}
                 onChange={(e) => setFormSku(e.target.value)}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                 required
               />
             </div>
+
             <div>
-              <label className="text-xs font-semibold text-foreground mb-1 block">
-                Barcode / EAN-13
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-foreground">Barcode / EAN-13</label>
+                <button
+                  type="button"
+                  onClick={generateEAN13}
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 flex items-center gap-0.5"
+                >
+                  <Barcode className="h-2.5 w-2.5" /> Generate EAN
+                </button>
+              </div>
               <input
                 type="text"
                 value={formBarcode}
                 onChange={(e) => setFormBarcode(e.target.value)}
-                placeholder="Scan or type barcode"
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="Scan or generate barcode"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
               />
             </div>
           </div>
@@ -545,8 +697,47 @@ export default function InventoryPage() {
             >
               Cancel
             </Button>
-            <Button type="submit" variant="default">
+            <Button type="submit" variant="default" className="font-bold">
               {editingProduct ? "Save Changes" : "Create Product"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* INLINE CATEGORY CREATION MODAL */}
+      <Modal
+        isOpen={isNewCategoryModalOpen}
+        onClose={() => setIsNewCategoryModalOpen(false)}
+        title="Add Product Category"
+      >
+        <form onSubmit={handleCreateCategory} className="space-y-3 pt-2">
+          <div>
+            <label className="text-xs font-semibold text-foreground mb-1 block">Category Name *</label>
+            <input
+              type="text"
+              value={newCatName}
+              onChange={(e) => setNewCatName(e.target.value)}
+              placeholder="e.g. Dairy & Eggs, Beverages, Personal Care"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              required
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-foreground mb-1 block">Description (Optional)</label>
+            <input
+              type="text"
+              value={newCatDesc}
+              onChange={(e) => setNewCatDesc(e.target.value)}
+              placeholder="Brief description of the shelf category"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setIsNewCategoryModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="default" disabled={isCreatingCategory}>
+              {isCreatingCategory ? "Creating..." : "Save Category"}
             </Button>
           </div>
         </form>
@@ -557,7 +748,7 @@ export default function InventoryPage() {
         isOpen={!!adjustingProduct}
         onClose={() => setAdjustingProduct(null)}
         title={`Adjust Stock • ${adjustingProduct?.name}`}
-        description={`Current in-stock: ${adjustingProduct?.stock_quantity ?? adjustingProduct?.current_stock ?? 0} ${adjustingProduct?.unit}`}
+        description={`Current in-stock: ${adjustingProduct?.stock_quantity ?? adjustingProduct?.current_stock ?? 0} ${adjustingProduct?.unit || "pcs"}`}
       >
         {adjustingProduct && (
           <form onSubmit={handleStockAdjustment} className="space-y-4 pt-2">
@@ -578,7 +769,7 @@ export default function InventoryPage() {
 
             <div>
               <label className="text-xs font-semibold text-foreground mb-1 block">
-                Quantity Units ({adjustingProduct.unit})
+                Quantity Units ({adjustingProduct.unit || "pcs"})
               </label>
               <input
                 type="number"
@@ -598,7 +789,7 @@ export default function InventoryPage() {
                 type="text"
                 value={adjustNote}
                 onChange={(e) => setAdjustNote(e.target.value)}
-                placeholder="e.g. Received batch #440 from distributor"
+                placeholder="e.g. Restocked from Metro Cash & Carry, Invoice #8821"
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
@@ -607,12 +798,80 @@ export default function InventoryPage() {
               <Button type="button" variant="ghost" onClick={() => setAdjustingProduct(null)}>
                 Cancel
               </Button>
-              <Button type="submit" variant="default">
-                Confirm Adjustment
+              <Button type="submit" variant="default" className="font-bold">
+                Confirm Stock Adjustment
               </Button>
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* STOCK MOVEMENTS AUDIT TRAIL MODAL */}
+      <Modal
+        isOpen={isMovementsModalOpen}
+        onClose={() => setIsMovementsModalOpen(false)}
+        title="Stock Movements & Audit Trail"
+        description="Comprehensive audit ledger tracking restocks, sales deductions, shrinkage, and returns."
+        maxWidth="xl"
+      >
+        <div className="space-y-3 pt-2">
+          {isLoadingMovements ? (
+            <div className="py-12 flex flex-col items-center justify-center text-xs text-muted-foreground gap-2">
+              <RefreshCw className="h-5 w-5 animate-spin text-indigo-500" />
+              <span>Loading stock audit movements...</span>
+            </div>
+          ) : (
+            <div className="max-h-[60vh] overflow-y-auto divide-y divide-border/60">
+              {stockMovements.map((mov) => {
+                const isPositive = Number(mov.quantity) > 0;
+                return (
+                  <div key={mov.id} className="py-2.5 flex items-center justify-between text-xs gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-foreground">
+                          {mov.products?.name || "Product Stock"}
+                        </span>
+                        <Badge
+                          variant={
+                            mov.movement_type === "INVOICE_SALE"
+                              ? "outline"
+                              : mov.movement_type === "RESTOCK"
+                              ? "success"
+                              : mov.movement_type === "RETURN"
+                              ? "secondary"
+                              : "warning"
+                          }
+                          className="text-[10px] py-0"
+                        >
+                          {mov.movement_type}
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {mov.notes || "System movement entry"} • {new Date(mov.created_at).toLocaleString()}
+                      </p>
+                    </div>
+
+                    <div className="text-right font-mono">
+                      <span
+                        className={`font-extrabold text-sm ${
+                          isPositive ? "text-emerald-500" : "text-rose-500"
+                        }`}
+                      >
+                        {isPositive ? `+${mov.quantity}` : mov.quantity} {mov.products?.unit || "pcs"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {stockMovements.length === 0 && (
+                <div className="py-12 text-center text-xs text-muted-foreground">
+                  No stock movements recorded yet for this shop.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

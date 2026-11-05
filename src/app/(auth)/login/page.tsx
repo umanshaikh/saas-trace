@@ -9,19 +9,47 @@ import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { switchRole } = useTrace();
+  const { switchRole, signInWithEmail, resetPassword } = useTrace();
 
-  const [email, setEmail] = useState("owner@trace.app");
-  const [password, setPassword] = useState("••••••••");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [resetSent, setResetSent] = useState(false);
 
   const handleDemoLogin = (role: "OWNER" | "MANAGER" | "CASHIER", redirectPath = "/dashboard") => {
     switchRole(role);
     router.push(redirectPath);
   };
 
-  const handleFormLogin = (e: React.FormEvent) => {
+  const handleFormLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    router.push("/dashboard");
+    if (!email || !password) return;
+
+    setIsLoading(true);
+    setErrorMessage("");
+
+    const res = await signInWithEmail(email, password);
+    if (!res.success) {
+      setErrorMessage(res.error || "Invalid login credentials. Please check your email and password.");
+      setIsLoading(false);
+    } else {
+      router.push("/dashboard");
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setErrorMessage("Please enter your email address to receive password reset link.");
+      return;
+    }
+    const res = await resetPassword(email);
+    if (res.success) {
+      setResetSent(true);
+      setTimeout(() => setResetSent(false), 5000);
+    } else {
+      setErrorMessage(res.error || "Failed to send reset email.");
+    }
   };
 
   return (
@@ -84,6 +112,19 @@ export default function LoginPage() {
 
         {/* Regular Login Form */}
         <form onSubmit={handleFormLogin} className="p-6 rounded-2xl border border-slate-800 bg-slate-900/40 space-y-4">
+          {errorMessage && (
+            <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {resetSent && (
+            <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs">
+              Password reset link sent to your email address!
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-semibold text-slate-300 mb-1 block">Email Address</label>
             <div className="relative">
@@ -92,6 +133,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="owner@yourstore.in"
                 className="w-full rounded-lg border border-slate-800 bg-slate-950 pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 required
               />
@@ -99,21 +141,36 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-300 mb-1 block">Password</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-slate-300 block">Password</label>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="text-[11px] text-indigo-400 hover:underline"
+              >
+                Forgot Password?
+              </button>
+            </div>
             <div className="relative">
               <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
                 className="w-full rounded-lg border border-slate-800 bg-slate-950 pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 required
               />
             </div>
           </div>
 
-          <Button type="submit" variant="default" className="w-full font-bold bg-indigo-600 hover:bg-indigo-500">
-            Sign In to TRACE
+          <Button
+            type="submit"
+            disabled={isLoading}
+            variant="default"
+            className="w-full font-bold bg-indigo-600 hover:bg-indigo-500"
+          >
+            {isLoading ? "Signing in..." : "Sign In to TRACE"}
           </Button>
         </form>
 

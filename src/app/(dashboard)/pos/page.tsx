@@ -23,6 +23,11 @@ import {
   RefreshCw,
   ShoppingBag,
   Percent,
+  History,
+  Send,
+  FileText,
+  RotateCcw,
+  Volume2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,7 +48,9 @@ export default function POSPage() {
     products,
     categories,
     customers,
+    invoices,
     createInvoice,
+    refundInvoice,
     addCustomer,
   } = useTrace();
 
@@ -51,6 +58,7 @@ export default function POSPage() {
   const shopProducts = products.filter((p) => p.shop_id === activeShop.id && p.is_active);
   const shopCategories = categories.filter((c) => c.shop_id === activeShop.id);
   const shopCustomers = customers.filter((c) => c.shop_id === activeShop.id);
+  const shopInvoices = invoices.filter((i) => i.shop_id === activeShop.id);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -63,6 +71,7 @@ export default function POSPage() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [overallDiscountPercent, setOverallDiscountPercent] = useState<number>(0);
+  const [isInterState, setIsInterState] = useState<boolean>(false);
 
   // Settlement & Payment Modals
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -71,14 +80,43 @@ export default function POSPage() {
   >("CASH");
   const [cashTenderedRupees, setCashTenderedRupees] = useState<string>("");
   const [splitCashRupees, setSplitCashRupees] = useState<string>("");
+  const [splitSecondaryMethod, setSplitSecondaryMethod] = useState<"UPI" | "CARD">("UPI");
   const [upiQrDataUrl, setUpiQrDataUrl] = useState<string>("");
   const [completedInvoice, setCompletedInvoice] = useState<any | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Quick Customer Creation Modal
   const [isNewCustomerModalOpen, setIsNewCustomerModalOpen] = useState(false);
   const [newCustName, setNewCustName] = useState("");
   const [newCustPhone, setNewCustPhone] = useState("");
   const [newCustCreditLimit, setNewCustCreditLimit] = useState(5000);
+
+  // Bill History & Refund Modals
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [refundingInvoice, setRefundingInvoice] = useState<any | null>(null);
+  const [refundReason, setRefundReason] = useState("Customer requested return");
+  const [isRefunding, setIsRefunding] = useState(false);
+
+  // Audio Beep for Hardware Barcode Scanner & POS Actions
+  const playBeep = (freq = 920, duration = 0.09) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) {
+      // Audio context may be restricted by autoplay policy
+    }
+  };
 
   // Keyboard shortcut listener (F1 = focus search, Escape = clear / dismiss)
   useEffect(() => {
@@ -93,6 +131,83 @@ export default function POSPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Hardware Barcode Scanner Listener: Captures rapid keystrokes (< 50ms) ending with Enter
+  useEffect(() => {
+    let buffer = "";
+    let lastKeyTime = Date.now();
+
+    const handleBarcodeKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      // Do not intercept if user is typing in forms other than global or search
+      const isSearchActive = target === searchInputRef.current;
+      const isOtherInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA") && !isSearchActive;
+      if (isOtherInput) return;
+
+      const currentTime = Date.now();
+      const timeDiff = currentTime - lastKeyTime;
+      lastKeyTime = currentTime;
+
+      if (e.key === "Enter") {
+        if (buffer.length >= 3) {
+          const scanned = buffer.trim().toLowerCase();
+          const match = shopProducts.find(
+            (p) =>
+              p.barcode?.trim().toLowerCase() === scanned ||
+              p.sku?.trim().toLowerCase() === scanned
+          );
+          if (match) {
+            e.preventDefault();
+            addToCart(match);
+            playBeep(980, 0.12);
+            buffer = "";
+            return;
+          }
+        }
+        buffer = "";
+      } else if (e.key.length === 1) {
+        // High typing speeds (< 55ms per character) indicate hardware scanner emulation
+        if (timeDiff > 70) {
+          buffer = e.key;
+        } else {
+          buffer += e.key;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleBarcodeKey);
+    return () => window.removeEventListener("keydown", handleBarcodeKey);
+  }, [shopProducts]);
+
+  // Handle Search Input Enter Key (Instant Add if match found)
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const query = searchQuery.trim().toLowerCase();
+      if (!query) return;
+
+      // 1. Exact barcode or SKU match
+      const exactMatch = shopProducts.find(
+        (p) =>
+          p.barcode?.toLowerCase() === query ||
+          p.sku?.toLowerCase() === query
+      );
+
+      if (exactMatch) {
+        addToCart(exactMatch);
+        playBeep(920, 0.1);
+        setSearchQuery("");
+        return;
+      }
+
+      // 2. If filtered result has only 1 product, select it
+      if (filteredProducts.length === 1) {
+        addToCart(filteredProducts[0]);
+        playBeep(920, 0.1);
+        setSearchQuery("");
+      }
+    }
+  };
+
   // Filter products by search & category
   const filteredProducts = shopProducts.filter((p) => {
     const matchesSearch =
@@ -106,7 +221,8 @@ export default function POSPage() {
 
   // Cart Calculations (Strict integer paise math)
   const cartSubtotalPaise = cart.reduce((sum, item) => {
-    return sum + item.product.selling_price_paise * item.quantity;
+    const itemGross = item.product.selling_price_paise * item.quantity;
+    return sum + Math.max(0, itemGross - item.discountPaise);
   }, 0);
 
   const discountAmountPaise = Math.round(
@@ -116,15 +232,18 @@ export default function POSPage() {
   const discountedSubtotalPaise = Math.max(0, cartSubtotalPaise - discountAmountPaise);
 
   const cartTaxPaise = cart.reduce((sum, item) => {
-    const itemSubtotal = item.product.selling_price_paise * item.quantity;
+    const itemGross = item.product.selling_price_paise * item.quantity - item.discountPaise;
     const taxRate = item.product.tax_rate ?? item.product.tax_rate_percent ?? 0;
-    const itemTax = Math.round(itemSubtotal * (taxRate / 100));
+    const itemTax = Math.round(Math.max(0, itemGross) * (taxRate / 100));
     return sum + itemTax;
   }, 0);
 
   const cartTotalPaise = discountedSubtotalPaise + cartTaxPaise;
 
-  // Change calculation for Cash payment
+  // Split & Cash Change calculations
+  const splitCashPaise = splitCashRupees ? rupeesToPaise(Number(splitCashRupees)) : Math.floor(cartTotalPaise / 2);
+  const splitRemainderPaise = Math.max(0, cartTotalPaise - splitCashPaise);
+
   const cashTenderedPaise = cashTenderedRupees
     ? rupeesToPaise(Number(cashTenderedRupees))
     : cartTotalPaise;
@@ -132,12 +251,17 @@ export default function POSPage() {
 
   // Cart operations
   const addToCart = (product: Product) => {
+    const stock = product.stock_quantity ?? product.current_stock ?? 0;
+    if (stock <= 0) {
+      alert(`Product ${product.name} is currently out of stock!`);
+      return;
+    }
+
     setCart((prev) => {
       const existing = prev.find((i) => i.product.id === product.id);
-      const stock = product.stock_quantity ?? product.current_stock ?? 0;
       if (existing) {
         if (existing.quantity >= stock) {
-          alert(`Maximum in-stock quantity reached for ${product.name}!`);
+          alert(`Maximum in-stock quantity (${stock}) reached for ${product.name}!`);
           return prev;
         }
         return prev.map((i) =>
@@ -168,6 +292,16 @@ export default function POSPage() {
     });
   };
 
+  const updateItemDiscount = (productId: string, discountRupees: number) => {
+    setCart((prev) =>
+      prev.map((i) =>
+        i.product.id === productId
+          ? { ...i, discountPaise: rupeesToPaise(Math.max(0, discountRupees)) }
+          : i
+      )
+    );
+  };
+
   const removeFromCart = (productId: string) => {
     setCart((prev) => prev.filter((i) => i.product.id !== productId));
   };
@@ -177,18 +311,21 @@ export default function POSPage() {
     setSelectedCustomer(null);
     setOverallDiscountPercent(0);
     setCashTenderedRupees("");
+    setSplitCashRupees("");
   };
 
-  // Generate UPI QR Code whenever UPI payment is opened
+  // Generate UPI QR Code whenever UPI or SPLIT payment is opened
   const handleOpenCheckout = async () => {
     if (cart.length === 0) return;
     setIsCheckoutOpen(true);
     setCashTenderedRupees((cartTotalPaise / 100).toString());
+    setSplitCashRupees(Math.floor(cartTotalPaise / 200).toString());
 
     // Generate UPI string
+    const upiTargetPaise = paymentMethod === "SPLIT" ? splitRemainderPaise : cartTotalPaise;
     const upiString = `upi://pay?pa=trace.${activeShop.id}@icici&pn=${encodeURIComponent(
       activeShop.name
-    )}&am=${(cartTotalPaise / 100).toFixed(2)}&cu=INR&tn=Invoice`;
+    )}&am=${(upiTargetPaise / 100).toFixed(2)}&cu=INR&tn=Invoice`;
     try {
       const qrUrl = await QRCode.toDataURL(upiString, { width: 220, margin: 1 });
       setUpiQrDataUrl(qrUrl);
@@ -197,14 +334,14 @@ export default function POSPage() {
     }
   };
 
-  // Final Settlement Execution
-  const handleFinalizeBill = () => {
-    if (cart.length === 0) return;
+  // Final Settlement Execution with Duplicate Guard
+  const handleFinalizeBill = async () => {
+    if (isProcessing || cart.length === 0) return;
 
     // Validate PayLater Credit
     if (paymentMethod === "PAYLATER") {
       if (!selectedCustomer) {
-        alert("Please select or add a customer to use PayLater credit!");
+        alert("Please select or add a customer to bill on PayLater credit!");
         return;
       }
       const custDebt = selectedCustomer.outstanding_balance_paise ?? selectedCustomer.total_outstanding_paise ?? 0;
@@ -220,49 +357,68 @@ export default function POSPage() {
       }
     }
 
-    // Prepare Invoice Items
-    const invoiceItems = cart.map((i) => {
-      const taxRate = i.product.tax_rate ?? i.product.tax_rate_percent ?? 0;
-      return {
-        product_id: i.product.id,
-        product_name: i.product.name,
-        quantity: i.quantity,
-        unit_price_paise: i.product.selling_price_paise,
-        tax_rate: taxRate,
-        tax_amount_paise: Math.round(
-          i.product.selling_price_paise * i.quantity * (taxRate / 100)
-        ),
-        total_paise:
-          i.product.selling_price_paise * i.quantity +
-          Math.round(
-            i.product.selling_price_paise * i.quantity * (taxRate / 100)
-          ),
-      };
-    });
+    setIsProcessing(true);
 
-    const paidPaise =
-      paymentMethod === "PAYLATER" ? 0 : cartTotalPaise;
+    try {
+      // Prepare Invoice Items
+      const invoiceItems = cart.map((i) => {
+        const taxRate = i.product.tax_rate ?? i.product.tax_rate_percent ?? 0;
+        const itemGross = i.product.selling_price_paise * i.quantity - i.discountPaise;
+        const itemTax = Math.round(Math.max(0, itemGross) * (taxRate / 100));
 
-    const created = createInvoice(
-      invoiceItems,
-      paymentMethod,
-      paidPaise,
-      selectedCustomer?.id,
-      selectedCustomer?.name || (paymentMethod === "PAYLATER" ? "Valued Client" : "Walk-in Customer"),
-      selectedCustomer?.phone,
-      `POS Counter Bill - Method: ${paymentMethod}`
-    );
+        return {
+          product_id: i.product.id,
+          product_name: i.product.name,
+          product_name_snapshot: i.product.name,
+          sku_snapshot: i.product.sku,
+          unit_snapshot: i.product.unit || "pcs",
+          quantity: i.quantity,
+          unit_price_paise: i.product.selling_price_paise,
+          tax_rate: taxRate,
+          tax_rate_percent: taxRate,
+          tax_paise: itemTax,
+          line_total_paise: Math.max(0, itemGross) + itemTax,
+          total_paise: Math.max(0, itemGross) + itemTax,
+        };
+      });
 
-    // Confetti celebration
-    confetti({
-      particleCount: 60,
-      spread: 70,
-      origin: { y: 0.6 },
-    });
+      const paidPaise =
+        paymentMethod === "PAYLATER" ? 0 : cartTotalPaise;
 
-    setCompletedInvoice(created);
-    setIsCheckoutOpen(false);
-    clearCart();
+      let billNotes = `POS Counter Bill - Method: ${paymentMethod}`;
+      if (paymentMethod === "SPLIT") {
+        billNotes = `POS Split Settlement: Cash ₹${(splitCashPaise / 100).toFixed(2)} + ${splitSecondaryMethod} ₹${(splitRemainderPaise / 100).toFixed(2)}`;
+      }
+
+      const created = await createInvoice(
+        invoiceItems,
+        paymentMethod,
+        paidPaise,
+        selectedCustomer?.id,
+        selectedCustomer?.name || selectedCustomer?.full_name || (paymentMethod === "PAYLATER" ? "Valued Client" : "Walk-in Customer"),
+        selectedCustomer?.phone,
+        billNotes,
+        isInterState
+      );
+
+      // Play victory chime & confetti celebration
+      playBeep(1046, 0.15);
+      setTimeout(() => playBeep(1318, 0.25), 160);
+
+      confetti({
+        particleCount: 65,
+        spread: 75,
+        origin: { y: 0.6 },
+      });
+
+      setCompletedInvoice(created);
+      setIsCheckoutOpen(false);
+      clearCart();
+    } catch (err: any) {
+      alert(err.message || "An error occurred while finalizing bill. Please retry.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // Quick Customer Creation
@@ -272,9 +428,11 @@ export default function POSPage() {
 
     const added = addCustomer({
       name: newCustName,
+      full_name: newCustName,
       phone: newCustPhone,
       credit_limit_paise: rupeesToPaise(newCustCreditLimit),
       outstanding_balance_paise: 0,
+      total_outstanding_paise: 0,
     });
 
     setSelectedCustomer(added);
@@ -283,28 +441,124 @@ export default function POSPage() {
     setNewCustPhone("");
   };
 
+  // Process Return & Refund
+  const handleProcessRefund = async () => {
+    if (!refundingInvoice || isRefunding) return;
+    setIsRefunding(true);
+
+    try {
+      const res = await refundInvoice(refundingInvoice.id, refundReason);
+      if (res.success) {
+        alert(`Invoice #${refundingInvoice.invoice_number} successfully refunded and stock restored to inventory.`);
+        setIsRefundModalOpen(false);
+        setRefundingInvoice(null);
+      } else {
+        alert(res.error || "Failed to process refund");
+      }
+    } catch (e: any) {
+      alert(e.message || "Failed to refund invoice");
+    } finally {
+      setIsRefunding(false);
+    }
+  };
+
+  // WhatsApp Digital Invoice Sharing
+  const handleShareWhatsApp = (inv: any) => {
+    if (!inv) return;
+    const phone = inv.customer_phone_snapshot || inv.customer_phone || selectedCustomer?.phone || "";
+    const cleanPhone = phone.replace(/[^0-9]/g, "");
+
+    const lines = [
+      `🛍️ *TAX INVOICE — ${activeShop.name.toUpperCase()}*`,
+      `Bill: #${inv.invoice_number}`,
+      `Date: ${new Date(inv.created_at || Date.now()).toLocaleDateString()} ${new Date(inv.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      `Customer: ${inv.customer_name_snapshot || inv.customer_name || 'Valued Guest'}`,
+      `GSTIN: ${activeShop.gstin || "27AABCT1332L1Z5"}`,
+      `--------------------------------`,
+    ];
+
+    (inv.items || []).forEach((item: any, idx: number) => {
+      lines.push(`${idx + 1}. ${item.product_name || item.product_name_snapshot} x ${item.quantity} = ${formatPaise(item.line_total_paise || item.total_paise)}`);
+    });
+
+    lines.push(`--------------------------------`);
+    lines.push(`Subtotal: ${formatPaise(inv.subtotal_paise)}`);
+    if (inv.discount_paise > 0) lines.push(`Discount: -${formatPaise(inv.discount_paise)}`);
+    lines.push(`GST: ${formatPaise(inv.tax_paise)}`);
+    lines.push(`*GRAND TOTAL: ${formatPaise(inv.total_amount_paise)}*`);
+    lines.push(`Payment Method: ${inv.payment_method} (${inv.payment_status})`);
+    lines.push(`--------------------------------`);
+    lines.push(`Thank you for shopping with ${activeShop.name}! Please visit again.`);
+
+    const msg = lines.join("\n");
+    const url = cleanPhone
+      ? `https://api.whatsapp.com/send?phone=${cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone}&text=${encodeURIComponent(msg)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
+  };
+
   return (
     <div className="flex h-[calc(100vh-5.5rem)] flex-col gap-4 lg:flex-row animate-in fade-in duration-150">
+      {/* Print Styles for 80mm ESC/POS Thermal Printer */}
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          #pos-thermal-slip, #pos-thermal-slip * {
+            visibility: visible;
+          }
+          #pos-thermal-slip {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 80mm !important;
+            max-width: 80mm !important;
+            margin: 0 !important;
+            padding: 8px !important;
+            background: #fff !important;
+            color: #000 !important;
+            font-family: monospace !important;
+            font-size: 11px !important;
+          }
+        }
+      `}</style>
+
       {/* LEFT SECTION: Catalog & Search (60%) */}
       <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
-        {/* Search & Barcode Bar */}
+        {/* Top Control Bar: Search & Actions */}
         <div className="flex items-center gap-2 mb-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <input
               ref={searchInputRef}
               type="text"
-              placeholder="Search product name, scan barcode, or enter SKU (Press F1)..."
+              placeholder="Search product name, scan barcode, or enter SKU (Press F1 or Enter)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-input bg-background pl-9 pr-12 py-2 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"
+              onKeyDown={handleSearchKeyDown}
+              className="w-full rounded-xl border border-input bg-background pl-9 pr-14 py-2 text-xs sm:text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"
             />
-            <div className="absolute right-2 top-2">
-              <Badge variant="outline" className="text-[10px] uppercase font-mono py-0">
+            <div className="absolute right-2 top-2 flex items-center gap-1">
+              <Badge variant="outline" className="text-[10px] uppercase font-mono py-0 text-muted-foreground">
                 F1
               </Badge>
             </div>
           </div>
+
+          {/* Bill History & Returns Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsHistoryOpen(true)}
+            className="h-9 gap-1.5 text-xs border-border/70"
+          >
+            <History className="h-3.5 w-3.5 text-indigo-500" />
+            <span className="hidden sm:inline">Bills</span>
+            <Badge variant="secondary" className="text-[10px] py-0 px-1.5 ml-0.5">
+              {shopInvoices.length}
+            </Badge>
+          </Button>
         </div>
 
         {/* Category Pills Carousel */}
@@ -359,7 +613,7 @@ export default function POSPage() {
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[70px]">
-                        {product.sku || "PROD"}
+                        {product.sku || "SKU"}
                       </span>
                       <span
                         className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -370,7 +624,7 @@ export default function POSPage() {
                             : "bg-muted text-muted-foreground"
                         }`}
                       >
-                        {product.stock_quantity} {product.unit}
+                        {pStock} {product.unit || "pcs"}
                       </span>
                     </div>
 
@@ -380,9 +634,16 @@ export default function POSPage() {
                   </div>
 
                   <div className="mt-3 flex items-center justify-between border-t border-border/40 pt-2">
-                    <span className="text-xs sm:text-sm font-extrabold text-foreground">
-                      {formatPaise(product.selling_price_paise)}
-                    </span>
+                    <div>
+                      <span className="text-xs sm:text-sm font-extrabold text-foreground">
+                        {formatPaise(product.selling_price_paise)}
+                      </span>
+                      {(product.tax_rate ?? product.tax_rate_percent ?? 0) > 0 && (
+                        <span className="block text-[9px] text-muted-foreground">
+                          +{product.tax_rate ?? product.tax_rate_percent}% GST
+                        </span>
+                      )}
+                    </div>
                     <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-600 text-white text-xs opacity-90 group-hover:scale-110 transition-transform">
                       {cartMatch ? cartMatch.quantity : <Plus className="h-3.5 w-3.5" />}
                     </span>
@@ -402,7 +663,7 @@ export default function POSPage() {
       </div>
 
       {/* RIGHT SECTION: Cart Drawer & Checkout (40%) */}
-      <div className="flex w-full lg:w-[420px] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
+      <div className="flex w-full lg:w-[430px] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
         {/* Customer Header */}
         <div className="mb-3 border-b border-border/60 pb-3">
           <div className="flex items-center justify-between mb-1.5">
@@ -432,7 +693,7 @@ export default function POSPage() {
                 </p>
                 {(selectedCustomer.outstanding_balance_paise ?? selectedCustomer.total_outstanding_paise ?? 0) > 0 && (
                   <p className="text-[10px] font-bold text-rose-500">
-                    Current Khata Due: {formatPaise(selectedCustomer.outstanding_balance_paise ?? selectedCustomer.total_outstanding_paise ?? 0)}
+                    Khata Due: {formatPaise(selectedCustomer.outstanding_balance_paise ?? selectedCustomer.total_outstanding_paise ?? 0)}
                   </p>
                 )}
               </div>
@@ -494,15 +755,18 @@ export default function POSPage() {
                 <p className="text-xs font-semibold text-foreground truncate">
                   {item.product.name}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
-                  {formatPaise(item.product.selling_price_paise)} × {item.quantity} {item.product.unit}
-                  {(item.product.tax_rate ?? item.product.tax_rate_percent ?? 0) > 0 &&
-                    ` (+${item.product.tax_rate ?? item.product.tax_rate_percent}% GST)`}
-                </p>
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span>{formatPaise(item.product.selling_price_paise)} × {item.quantity} {item.product.unit || "pcs"}</span>
+                  {(item.product.tax_rate ?? item.product.tax_rate_percent ?? 0) > 0 && (
+                    <span className="text-[10px] text-indigo-400">
+                      (+{item.product.tax_rate ?? item.product.tax_rate_percent}%)
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Quantity Controls */}
-              <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-lg">
+              <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg">
                 <button
                   onClick={() => updateQuantity(item.product.id, -1)}
                   className="h-5 w-5 flex items-center justify-center rounded bg-background text-foreground hover:bg-accent"
@@ -552,7 +816,7 @@ export default function POSPage() {
           {/* Discount Selector */}
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground flex items-center gap-1">
-              <Percent className="h-3 w-3" /> Discount:
+              <Percent className="h-3 w-3" /> Invoice Discount:
             </span>
             <div className="flex items-center gap-1">
               {[0, 5, 10, 15].map((pct) => (
@@ -562,7 +826,7 @@ export default function POSPage() {
                   className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                     overallDiscountPercent === pct
                       ? "bg-indigo-600 text-white"
-                      : "bg-muted text-muted-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
                   }`}
                 >
                   {pct}%
@@ -578,8 +842,20 @@ export default function POSPage() {
             </div>
           )}
 
+          {/* Tax Breakdown & Inter-state toggle */}
           <div className="flex items-center justify-between text-muted-foreground">
-            <span>Estimated GST Tax:</span>
+            <div className="flex items-center gap-1.5">
+              <span>Tax ({isInterState ? "IGST" : "CGST + SGST"}):</span>
+              <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isInterState}
+                  onChange={(e) => setIsInterState(e.target.checked)}
+                  className="rounded text-indigo-600 focus:ring-0 h-3 w-3"
+                />
+                <span>Inter-State</span>
+              </label>
+            </div>
             <span>+{formatPaise(cartTaxPaise)}</span>
           </div>
 
@@ -614,34 +890,36 @@ export default function POSPage() {
       {/* SETTLEMENT MODAL */}
       <Modal
         isOpen={isCheckoutOpen}
-        onClose={() => setIsCheckoutOpen(false)}
+        onClose={() => !isProcessing && setIsCheckoutOpen(false)}
         title="Complete Bill Settlement"
         description={`Total Amount Payable: ${formatPaise(cartTotalPaise)}`}
         maxWidth="lg"
       >
         <div className="space-y-4 pt-2">
           {/* Payment Method Selector */}
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-5 gap-1.5">
             {[
               { id: "CASH", label: "Cash", icon: Banknote },
               { id: "UPI", label: "UPI QR", icon: QrCode },
               { id: "CARD", label: "Card", icon: CreditCard },
-              { id: "PAYLATER", label: "PayLater Khata", icon: Receipt },
+              { id: "SPLIT", label: "Split", icon: Calculator },
+              { id: "PAYLATER", label: "Khata", icon: Receipt },
             ].map((m) => {
               const Icon = m.icon;
               const isSelected = paymentMethod === m.id;
               return (
                 <button
                   key={m.id}
+                  disabled={isProcessing}
                   onClick={() => setPaymentMethod(m.id as any)}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-semibold transition-all ${
+                  className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-xs font-semibold transition-all ${
                     isSelected
                       ? "border-indigo-600 bg-indigo-600 text-white shadow-md shadow-indigo-500/25"
                       : "border-border/60 bg-muted/40 text-foreground hover:bg-muted"
                   }`}
                 >
-                  <Icon className="h-5 w-5 mb-1" />
-                  <span>{m.label}</span>
+                  <Icon className="h-4 w-4 mb-1" />
+                  <span className="text-[11px]">{m.label}</span>
                 </button>
               );
             })}
@@ -689,11 +967,11 @@ export default function POSPage() {
           {paymentMethod === "UPI" && (
             <div className="p-4 rounded-xl border border-border/60 bg-accent/20 flex flex-col items-center justify-center text-center space-y-2">
               <p className="text-xs font-semibold text-foreground">
-                Scan with any UPI App (GPay, PhonePe, Paytm)
+                Scan with any UPI App (GPay, PhonePe, Paytm, BHIM)
               </p>
               {upiQrDataUrl && (
                 <div className="p-2 bg-white rounded-xl shadow-md">
-                  <img src={upiQrDataUrl} alt="UPI QR" className="h-44 w-44" />
+                  <img src={upiQrDataUrl} alt="UPI QR" className="h-40 w-40" />
                 </div>
               )}
               <p className="text-[11px] text-muted-foreground font-mono">
@@ -707,11 +985,45 @@ export default function POSPage() {
             <div className="p-6 rounded-xl border border-border/60 bg-accent/20 text-center space-y-2">
               <CreditCard className="mx-auto h-10 w-10 text-indigo-400" />
               <p className="text-xs font-bold text-foreground">
-                Card POS Machine / Tap to Pay
+                Wireless POS Terminal / Tap to Pay
               </p>
               <p className="text-xs text-muted-foreground">
-                Swipe or insert card for {formatPaise(cartTotalPaise)} on the wireless terminal.
+                Process swipe, chip, or NFC tap for {formatPaise(cartTotalPaise)} on the wireless reader.
               </p>
+            </div>
+          )}
+
+          {/* SPLIT PAYMENT DETAILS */}
+          {paymentMethod === "SPLIT" && (
+            <div className="p-4 rounded-xl border border-border/60 bg-accent/20 space-y-3 text-xs">
+              <p className="font-bold text-foreground">Split Payment: Cash + Digital</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-muted-foreground block mb-1">Cash Portion (₹)</label>
+                  <input
+                    type="number"
+                    value={splitCashRupees}
+                    onChange={(e) => setSplitCashRupees(e.target.value)}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-bold text-foreground"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="text-muted-foreground block mb-1">Remaining Payment Via</label>
+                  <select
+                    value={splitSecondaryMethod}
+                    onChange={(e) => setSplitSecondaryMethod(e.target.value as any)}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground"
+                  >
+                    <option value="UPI">UPI QR Code</option>
+                    <option value="CARD">Credit / Debit Card</option>
+                  </select>
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-background border border-border/70 flex justify-between font-bold">
+                <span>Remaining {splitSecondaryMethod} Due:</span>
+                <span className="text-indigo-400">{formatPaise(splitRemainderPaise)}</span>
+              </div>
             </div>
           )}
 
@@ -740,56 +1052,95 @@ export default function POSPage() {
 
           {/* Finalize Button */}
           <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
-            <Button variant="ghost" onClick={() => setIsCheckoutOpen(false)}>
+            <Button
+              variant="ghost"
+              disabled={isProcessing}
+              onClick={() => setIsCheckoutOpen(false)}
+            >
               Cancel
             </Button>
             <Button
               variant="default"
+              disabled={isProcessing}
               onClick={handleFinalizeBill}
-              className="gap-2 font-bold px-6"
+              className="gap-2 font-bold px-6 shadow-md shadow-indigo-600/30"
             >
-              <Check className="h-4 w-4" />
-              Confirm & Generate Bill
+              {isProcessing ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span>Finalizing Bill & Deducting Stock...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4" />
+                  <span>Confirm & Generate Bill</span>
+                </>
+              )}
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* COMPLETED INVOICE PRINT MODAL */}
+      {/* COMPLETED INVOICE RECEIPT MODAL */}
       <Modal
         isOpen={!!completedInvoice}
         onClose={() => setCompletedInvoice(null)}
-        title="Payment Success • Invoice Generated"
+        title="Payment Success • Tax Invoice Generated"
         maxWidth="md"
       >
         {completedInvoice && (
           <div className="space-y-4 pt-1">
-            <div className="p-4 rounded-xl border border-border/80 bg-background space-y-3 font-mono text-xs">
+            {/* Visual Receipt Card */}
+            <div id="pos-thermal-slip" className="p-4 rounded-xl border border-border/80 bg-background space-y-3 font-mono text-xs">
               <div className="text-center border-b border-border/60 pb-2">
                 <h4 className="font-bold text-sm uppercase">{activeShop.name}</h4>
                 <p className="text-[10px] text-muted-foreground font-sans">
-                  {activeShop.city} • GSTIN: {activeShop.gstin || "27AABCT1332L1Z5"}
+                  {activeShop.address_line1 || activeShop.city} • Ph: {activeShop.phone || "Store Contact"}
                 </p>
-                <p className="mt-1 font-bold">Bill #{completedInvoice.invoice_number}</p>
-                <p className="text-[10px] text-muted-foreground">{new Date(completedInvoice.created_at).toLocaleString()}</p>
+                <p className="text-[10px] text-muted-foreground font-sans">
+                  GSTIN: {activeShop.gstin || "27AABCT1332L1Z5"}
+                </p>
+                <p className="mt-1 font-bold">Tax Invoice #{completedInvoice.invoice_number}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {new Date(completedInvoice.created_at || Date.now()).toLocaleString()}
+                </p>
+                {completedInvoice.customer_name && (
+                  <p className="text-[10px] font-sans text-muted-foreground">
+                    Customer: {completedInvoice.customer_name}
+                  </p>
+                )}
               </div>
 
+              {/* Items Table */}
               <div className="space-y-1">
+                <div className="flex justify-between font-bold text-[10px] border-b border-border/40 pb-1 text-muted-foreground">
+                  <span>ITEM</span>
+                  <span>TOTAL</span>
+                </div>
                 {completedInvoice.items?.map((item: any, i: number) => (
                   <div key={i} className="flex justify-between">
-                    <span>{item.product_name} × {item.quantity}</span>
-                    <span>{formatPaise(item.total_paise)}</span>
+                    <span className="truncate max-w-[200px]">
+                      {item.product_name || item.product_name_snapshot} × {item.quantity}
+                    </span>
+                    <span>{formatPaise(item.line_total_paise || item.total_paise)}</span>
                   </div>
                 ))}
               </div>
 
+              {/* Tax & Breakdown */}
               <div className="border-t border-border/60 pt-2 space-y-1">
                 <div className="flex justify-between">
                   <span>Subtotal:</span>
                   <span>{formatPaise(completedInvoice.subtotal_paise)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>GST:</span>
+                {completedInvoice.discount_paise > 0 && (
+                  <div className="flex justify-between text-emerald-500">
+                    <span>Discount:</span>
+                    <span>-{formatPaise(completedInvoice.discount_paise)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-muted-foreground">
+                  <span>GST Tax:</span>
                   <span>{formatPaise(completedInvoice.tax_paise)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-sm border-t border-border/40 pt-1">
@@ -797,22 +1148,178 @@ export default function POSPage() {
                   <span>{formatPaise(completedInvoice.total_amount_paise)}</span>
                 </div>
                 <div className="flex justify-between text-emerald-500 font-bold">
-                  <span>Method ({completedInvoice.payment_method}):</span>
+                  <span>Paid ({completedInvoice.payment_method}):</span>
                   <span>{formatPaise(completedInvoice.paid_amount_paise)}</span>
                 </div>
               </div>
+
+              <div className="text-center pt-2 border-t border-border/40 text-[10px] text-muted-foreground">
+                <p>Thank you for shopping with us!</p>
+                <p className="font-sans">PROJECT TRACE • Smart Retail Cloud</p>
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setCompletedInvoice(null)}>
-                Done / Next Sale
+            {/* Sharing & Printing Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleShareWhatsApp(completedInvoice)}
+                className="gap-1.5 text-xs text-emerald-500 hover:text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10"
+              >
+                <Send className="h-3.5 w-3.5" />
+                <span>WhatsApp Receipt</span>
+              </Button>
+
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setCompletedInvoice(null)}>
+                  Done
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="gap-2 font-bold"
+                  onClick={() => window.print()}
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Print 80mm Receipt</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* BILL HISTORY & REFUND MODAL */}
+      <Modal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        title="POS Sales History & Returns"
+        description="Audit completed bills, re-print thermal receipts, or process inventory returns and refunds."
+        maxWidth="xl"
+      >
+        <div className="space-y-3 pt-2">
+          <div className="max-h-[60vh] overflow-y-auto divide-y divide-border/60">
+            {shopInvoices.map((inv) => (
+              <div key={inv.id} className="py-3 flex items-center justify-between gap-3 text-xs">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold font-mono text-foreground">{inv.invoice_number}</span>
+                    <Badge
+                      variant={inv.payment_status === "REFUNDED" ? "destructive" : "secondary"}
+                      className="text-[10px] py-0"
+                    >
+                      {inv.payment_status}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      {inv.payment_method}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {inv.customer_name || inv.customer_name_snapshot || "Walk-in Guest"} • {new Date(inv.created_at).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-foreground mr-1">
+                    {formatPaise(inv.total_amount_paise)}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setCompletedInvoice(inv);
+                      setIsHistoryOpen(false);
+                    }}
+                    className="h-7 text-[11px] gap-1"
+                  >
+                    <Printer className="h-3 w-3" />
+                    <span>Print</span>
+                  </Button>
+                  {inv.payment_status !== "REFUNDED" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setRefundingInvoice(inv);
+                        setIsRefundModalOpen(true);
+                      }}
+                      className="h-7 text-[11px] text-rose-400 hover:text-rose-500 hover:bg-rose-500/10"
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" />
+                      Refund
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {shopInvoices.length === 0 && (
+              <div className="py-12 text-center text-xs text-muted-foreground">
+                No invoices generated yet for this store.
+              </div>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* CONFIRM REFUND MODAL */}
+      <Modal
+        isOpen={isRefundModalOpen}
+        onClose={() => !isRefunding && setIsRefundModalOpen(false)}
+        title="Process Return & Refund"
+        description={refundingInvoice ? `Invoice #${refundingInvoice.invoice_number} • Amount: ${formatPaise(refundingInvoice.total_amount_paise)}` : ""}
+      >
+        {refundingInvoice && (
+          <div className="space-y-4 pt-2 text-xs">
+            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400">
+              <p className="font-bold flex items-center gap-1.5 mb-1">
+                <AlertCircle className="h-4 w-4" />
+                Inventory & Accounting Impact
+              </p>
+              <p className="text-[11px]">
+                Refunding this bill will restock all sold quantities back into products inventory, record a refund audit entry, and reverse customer khata balances if applicable.
+              </p>
+            </div>
+
+            <div>
+              <label className="font-semibold text-foreground block mb-1">
+                Reason for Return / Refund
+              </label>
+              <input
+                type="text"
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+                placeholder="e.g. Defective item, customer changed mind"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+              <Button
+                variant="ghost"
+                disabled={isRefunding}
+                onClick={() => setIsRefundModalOpen(false)}
+              >
+                Cancel
               </Button>
               <Button
-                variant="default"
-                className="gap-2"
-                onClick={() => window.print()}
+                variant="destructive"
+                disabled={isRefunding}
+                onClick={handleProcessRefund}
+                className="gap-2 font-bold"
               >
-                <Printer className="h-4 w-4" /> Print Thermal Receipt
+                {isRefunding ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Restocking & Refunding...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>Confirm Full Refund</span>
+                  </>
+                )}
               </Button>
             </div>
           </div>

@@ -9,7 +9,7 @@ import { useTrace } from "@/context/TraceContext";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { registerNewShop } = useTrace();
+  const { registerNewShop, signUpWithEmail } = useTrace();
 
   const [shopName, setShopName] = useState("");
   const [businessType, setBusinessType] = useState("GROCERY");
@@ -17,24 +17,24 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!shopName || !email) return;
+    if (!shopName || !email || !password) return;
 
     setIsSubmitting(true);
+    setErrorMessage("");
     try {
-      await registerNewShop({
-        name: shopName,
-        business_type: businessType,
-        city,
-        email,
-      });
+      const res = await signUpWithEmail(email, password, shopName, shopName, businessType, city);
+      if (!res.success) {
+        setErrorMessage(res.error || "Registration failed. Please check your information.");
+        setIsSubmitting(false);
+        return;
+      }
       router.push("/dashboard");
-    } catch (err) {
-      console.error("Registration error:", err);
-      router.push("/dashboard");
-    } finally {
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to create account");
       setIsSubmitting(false);
     }
   };
@@ -58,6 +58,12 @@ export default function RegisterPage() {
 
         {/* Register Form */}
         <form onSubmit={handleRegister} className="p-6 rounded-2xl border border-slate-800 bg-slate-900/40 space-y-4">
+          {errorMessage && (
+            <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs">
+              {errorMessage}
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-semibold text-slate-300 mb-1 block">Store / Shop Name *</label>
             <div className="relative">

@@ -51,6 +51,20 @@ interface TraceContextType {
   language: "en" | "hi" | "mr";
   syncStatus: "IDLE" | "SYNCING" | "SYNCED" | "ERROR";
   syncWithSupabase: () => Promise<void>;
+  // Supabase Authentication & Session
+  authUser: any | null;
+  authSession: any | null;
+  signInWithEmail: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signUpWithEmail: (
+    email: string,
+    password: string,
+    fullName: string,
+    shopName: string,
+    businessType: string,
+    city: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  signOutUser: () => Promise<void>;
+  resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   // Super Admin / Founder Extensions
   allProducts: Product[];
   allInvoices: Invoice[];
@@ -85,6 +99,7 @@ interface TraceContextType {
   updateProduct: (id: string, updates: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
   adjustStock: (productId: string, quantityDelta: number, reason: string, notes?: string) => void;
+  addCategory: (name: string, description?: string) => Promise<Category>;
   createInvoice: (
     items: InvoiceItem[],
     paymentMethod: "CASH" | "UPI" | "CARD" | "PAYLATER" | "SPLIT" | "BANK_TRANSFER",
@@ -92,8 +107,10 @@ interface TraceContextType {
     customerId?: string,
     customerName?: string,
     customerPhone?: string,
-    notes?: string
-  ) => Invoice;
+    notes?: string,
+    isInterState?: boolean
+  ) => Promise<Invoice>;
+  refundInvoice: (invoiceId: string, reason: string, refundAmountPaise?: number) => Promise<{ success: boolean; error?: string }>;
   addCustomer: (customer: Partial<Customer>) => Customer;
   recordCustomerPayment: (customerId: string, amountPaise: number, paymentMethod: string, note?: string) => void;
   addExpense: (expense: Partial<Expense>) => void;
@@ -114,6 +131,8 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   const [userRole, setUserRole] = useState<Role>("OWNER");
   const [language, setLanguage] = useState<"en" | "hi" | "mr">("en");
   const [syncStatus, setSyncStatus] = useState<"IDLE" | "SYNCING" | "SYNCED" | "ERROR">("IDLE");
+  const [authUser, setAuthUser] = useState<any | null>(null);
+  const [authSession, setAuthSession] = useState<any | null>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>(DEMO_CATEGORIES);
@@ -156,6 +175,37 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
+      // 4. Fetch customers from Supabase
+      const { data: dbCustomers, error: custErr } = await supabase.from("customers").select("*");
+      if (!custErr && dbCustomers) {
+        setCustomers(dbCustomers);
+      }
+
+      // 5. Fetch invoices from Supabase with items
+      const { data: dbInvoices, error: invErr } = await supabase
+        .from("invoices")
+        .select("*, invoice_items(*)")
+        .order("created_at", { ascending: false });
+      if (!invErr && dbInvoices && dbInvoices.length > 0) {
+        const normalizedInvoices: Invoice[] = dbInvoices.map((inv: any) => ({
+          ...inv,
+          customer_name: inv.customer_name_snapshot,
+          customer_phone: inv.customer_phone_snapshot,
+          items: (inv.invoice_items || []).map((it: any) => ({
+            ...it,
+            product_name: it.product_name_snapshot,
+            total_paise: it.line_total_paise,
+          })),
+        }));
+        setInvoices(normalizedInvoices);
+      }
+
+      // 6. Fetch expenses from Supabase
+      const { data: dbExpenses, error: expErr } = await supabase.from("expenses").select("*");
+      if (!expErr && dbExpenses) {
+        setExpenses(dbExpenses);
+      }
+
       setSyncStatus("SYNCED");
     } catch (err) {
       console.warn("Supabase background sync:", err);
@@ -190,7 +240,120 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       }
     }
     syncWithSupabase();
+
+    // Supabase Auth listener
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthSession(session);
+      setAuthUser(session?.user ?? null);
+      if (session?.user?.email) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          email: session.user.email!,
+          full_name: session.user.user_metadata?.full_name || prev.full_name,
+        }));
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session);
+      setAuthUser(session?.user ?? null);
+      if (session?.user?.email) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          email: session.user.email!,
+          full_name: session.user.user_metadata?.full_name || prev.full_name,
+        }));
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
+
+  const signInWithEmail = async (email: string, pass: string) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password: pass,
+      });
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      setAuthSession(data.session);
+      setAuthUser(data.user);
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || "Failed to sign in" };
+    }
+  };
+
+  const signUpWithEmail = async (
+    email: string,
+    pass: string,
+    fullName: string,
+    shopName: string,
+    businessType: string,
+    city: string
+  ) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: pass,
+        options: {
+          data: {
+            full_name: fullName,
+            shop_name: shopName,
+            business_type: businessType,
+            city,
+          },
+        },
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      const newShop = await registerNewShop({
+        name: shopName,
+        business_type: businessType,
+        city,
+        email,
+      });
+
+      const profileId = data.user?.id || `usr_${Date.now()}`;
+      await supabase.from("profiles").upsert([
+        {
+          id: profileId,
+          user_id: data.user?.id || null,
+          full_name: fullName,
+          email,
+          preferred_language: "en",
+          is_super_admin: false,
+        },
+      ]);
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || "Failed to register" };
+    }
+  };
+
+  const signOutUser = async () => {
+    await supabase.auth.signOut();
+    setAuthUser(null);
+    setAuthSession(null);
+  };
+
+  const resetPassword = async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email);
+      if (error) return { success: false, error: error.message };
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  };
 
   const [subscriptions, setSubscriptions] = useState<Record<string, ShopSubscription>>({
     shop_default: {
@@ -587,16 +750,38 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     })();
   };
 
+  const addCategory = async (name: string, description?: string): Promise<Category> => {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || `cat-${Date.now()}`;
+    const newCat: Category = {
+      id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `cat_${Date.now()}`,
+      shop_id: activeShop.id,
+      name,
+      slug,
+      description: description || "",
+    };
+
+    setCategories((prev) => [...prev, newCat]);
+
+    try {
+      await supabase.from("categories").insert([newCat]);
+      setSyncStatus("SYNCED");
+    } catch (e) {
+      console.warn("Supabase add category error:", e);
+    }
+    return newCat;
+  };
+
   // Atomic checkout & invoice generator with strict integer arithmetic
-  const createInvoice = (
+  const createInvoice = async (
     items: InvoiceItem[],
     paymentMethod: "CASH" | "UPI" | "CARD" | "PAYLATER" | "SPLIT" | "BANK_TRANSFER",
     paidAmountPaise: number,
     customerId?: string,
     customerName?: string,
     customerPhone?: string,
-    notes?: string
-  ): Invoice => {
+    notes?: string,
+    isInterState: boolean = false
+  ): Promise<Invoice> => {
     // 1. Calculate totals on server/engine in exact paise
     const subtotalPaise = items.reduce((sum, item) => sum + (item.line_total_paise ?? item.total_paise ?? 0), 0);
     const taxPaise = items.reduce((sum, item) => sum + (item.tax_paise ?? 0), 0);
@@ -604,6 +789,78 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     const totalAmountPaise = subtotalPaise + taxPaise - discountPaise;
     const balanceAmountPaise = Math.max(0, totalAmountPaise - paidAmountPaise);
 
+    // Call atomic checkout API endpoint to persist to Supabase PostgreSQL
+    try {
+      const res = await fetch("/api/pos/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: activeShop.id,
+          customerId,
+          customerName,
+          customerPhone,
+          items: items.map((it) => ({
+            productId: it.product_id,
+            productName: it.product_name_snapshot || it.product_name || "Product",
+            sku: it.sku_snapshot,
+            unit: it.unit_snapshot || "pcs",
+            unitPricePaise: it.unit_price_paise,
+            taxRatePercent: it.tax_rate_percent ?? it.tax_rate ?? 0,
+            quantity: it.quantity,
+            lineTotalPaise: it.line_total_paise ?? it.total_paise,
+          })),
+          paymentMethod,
+          subtotalPaise,
+          discountPaise,
+          taxPaise,
+          totalAmountPaise,
+          paidAmountPaise,
+          balanceAmountPaise,
+          notes,
+          isInterState,
+          requestId: `pos_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.invoice) {
+        const verified = data.invoice;
+        setInvoices((prev) => [verified, ...prev]);
+
+        // Deduct inventory locally for immediate UI update
+        items.forEach((item) => {
+          if (item.product_id) {
+            adjustStock(item.product_id, -item.quantity, "INVOICE_SALE", `Billed in ${verified.invoice_number}`);
+          }
+        });
+
+        // Update customer balance if billed on khata
+        if (balanceAmountPaise > 0 && customerId) {
+          setCustomers((prev) =>
+            prev.map((c) => {
+              if (c.id === customerId) {
+                const currentOut = c.total_outstanding_paise ?? c.outstanding_balance_paise ?? 0;
+                const newOutstanding = currentOut + balanceAmountPaise;
+                return {
+                  ...c,
+                  total_outstanding_paise: newOutstanding,
+                  outstanding_balance_paise: newOutstanding,
+                  credit_status: newOutstanding >= c.credit_limit_paise ? "WARNING" : "GOOD",
+                };
+              }
+              return c;
+            })
+          );
+        }
+
+        setSyncStatus("SYNCED");
+        return verified;
+      }
+    } catch (apiErr) {
+      console.warn("POS checkout API call notice, falling back to local transaction:", apiErr);
+    }
+
+    // Local fallback
     let paymentStatus: "PAID" | "PARTIALLY_PAID" | "UNPAID" = "PAID";
     if (balanceAmountPaise === 0) {
       paymentStatus = "PAID";
@@ -651,14 +908,12 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       notes: notes,
     };
 
-    // 2. Atomically deduct inventory for each item
     items.forEach((item) => {
       if (item.product_id) {
         adjustStock(item.product_id, -item.quantity, "INVOICE_SALE", `Billed in ${invoiceNumber}`);
       }
     });
 
-    // 3. If balance remains and customer exists, record PayLater credit debt
     if (balanceAmountPaise > 0 && customerId) {
       setCustomers((prev) =>
         prev.map((c) => {
@@ -681,10 +936,52 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     return newInvoice;
   };
 
+  const refundInvoice = async (
+    invoiceId: string,
+    reason: string,
+    refundAmountPaise?: number
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch("/api/pos/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: activeShop.id,
+          invoiceId,
+          reason,
+          refundAmountPaise,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        return { success: false, error: data.error || "Failed to refund invoice" };
+      }
+
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === invoiceId
+            ? { ...inv, payment_status: "REFUNDED", status: "CANCELLED" }
+            : inv
+        )
+      );
+
+      // Re-fetch products to reflect returned stock
+      const { data: dbProducts } = await supabase.from("products").select("*").eq("shop_id", activeShop.id);
+      if (dbProducts) setProducts(dbProducts);
+
+      setSyncStatus("SYNCED");
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || "Failed to refund invoice" };
+    }
+  };
+
   const addCustomer = (data: Partial<Customer>): Customer => {
     const custName = data.full_name || data.name || "New Customer";
+    const id = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `cust_${Date.now()}`;
     const newCustomer: Customer = {
-      id: `cust_${Date.now()}`,
+      id,
       shop_id: activeShop.id,
       full_name: custName,
       name: custName,
@@ -698,6 +995,28 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
     setCustomers((prev) => [newCustomer, ...prev]);
+
+    (async () => {
+      try {
+        await supabase.from("customers").insert([
+          {
+            id: newCustomer.id,
+            shop_id: newCustomer.shop_id,
+            full_name: newCustomer.full_name,
+            phone: newCustomer.phone,
+            email: newCustomer.email,
+            address: newCustomer.address,
+            credit_limit_paise: newCustomer.credit_limit_paise,
+            total_outstanding_paise: 0,
+            credit_status: "GOOD",
+          },
+        ]);
+        setSyncStatus("SYNCED");
+      } catch (err) {
+        console.warn("Supabase add customer notice:", err);
+      }
+    })();
+
     return newCustomer;
   };
 
@@ -722,6 +1041,25 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         return c;
       })
     );
+
+    (async () => {
+      try {
+        await fetch("/api/customers/repay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shopId: activeShop.id,
+            customerId,
+            amountPaise,
+            paymentMethod,
+            notes: note || "Khata repayment",
+          }),
+        });
+        setSyncStatus("SYNCED");
+      } catch (err) {
+        console.warn("Repayment API notice:", err);
+      }
+    })();
   };
 
   const addExpense = (data: Partial<Expense>) => {
@@ -826,6 +1164,12 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         language,
         syncStatus,
         syncWithSupabase,
+        authUser,
+        authSession,
+        signInWithEmail,
+        signUpWithEmail,
+        signOutUser,
+        resetPassword,
         // Super Admin / Founder Extensions
         allProducts: products,
         allInvoices: invoices,
@@ -845,7 +1189,9 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         updateProduct,
         deleteProduct,
         adjustStock,
+        addCategory,
         createInvoice,
+        refundInvoice,
         addCustomer,
         recordCustomerPayment,
         addExpense,

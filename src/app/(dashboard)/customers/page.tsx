@@ -107,7 +107,7 @@ export default function CustomersPage() {
               </thead>
               <tbody className="divide-y divide-border/40">
                 {filteredCustomers.map((cust) => {
-                  const hasDue = (cust.outstanding_balance_paise || 0) > 0;
+                  const hasDue = (cust.outstanding_balance_paise ?? cust.total_outstanding_paise ?? 0) > 0;
 
                   return (
                     <tr key={cust.id} className="hover:bg-accent/40 transition-colors">
