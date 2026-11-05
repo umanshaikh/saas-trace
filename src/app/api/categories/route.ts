@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
+import { verifyTenantAccess } from "@/lib/auth/serverAuth";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const shopId = searchParams.get("shopId");
+
+    if (shopId) {
+      const authCheck = await verifyTenantAccess(req, shopId);
+      if (!authCheck.authorized) {
+        return authCheck.response!;
+      }
+    }
 
     let query = supabase.from("categories").select("*");
     if (shopId) {
@@ -28,6 +36,12 @@ export async function POST(req: NextRequest) {
 
     if (!shopId || !name) {
       return NextResponse.json({ error: "shopId and name are required" }, { status: 400 });
+    }
+
+    // Verify tenant authorization & role permission
+    const authCheck = await verifyTenantAccess(req, shopId, "canEditInventory");
+    if (!authCheck.authorized) {
+      return authCheck.response!;
     }
 
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");

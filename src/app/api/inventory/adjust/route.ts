@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
-import { enforcePermission } from "@/lib/auth/rbac";
+import { verifyTenantAccess } from "@/lib/auth/serverAuth";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const shopId = searchParams.get("shopId");
+
+    if (shopId) {
+      const authCheck = await verifyTenantAccess(req, shopId);
+      if (!authCheck.authorized) {
+        return authCheck.response!;
+      }
+    }
 
     let query = supabase
       .from("stock_movements")
@@ -31,26 +38,29 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const permCheck = enforcePermission(req, "canAdjustStock", body.role);
-    if (!permCheck.authorized) {
-      return permCheck.response!;
-    }
-
     const { productId, shopId, quantityDelta, reason = "RESTOCK", notes } = body;
 
     if (!productId || quantityDelta === undefined) {
       return NextResponse.json({ error: "productId and quantityDelta are required" }, { status: 400 });
     }
 
-    // Fetch product
+    // 1. Fetch product to determine its authentic shopId
     const { data: prod, error: fetchErr } = await supabase
       .from("products")
-      .select("id, name, current_stock, unit, low_stock_threshold")
+      .select("id, name, current_stock, unit, low_stock_threshold, shop_id")
       .eq("id", productId)
       .single();
 
     if (fetchErr || !prod) {
       return NextResponse.json({ error: "Product not found in database" }, { status: 404 });
+    }
+
+    const targetShopId = prod.shop_id || shopId;
+
+    // 2. Prevent cross-tenant tampering: Authoritatively verify access to this product's shop
+    const authCheck = await verifyTenantAccess(req, targetShopId, "canAdjustStock");
+    if (!authCheck.authorized) {
+      return authCheck.response!;
     }
 
     const currentStock = prod.current_stock || 0;

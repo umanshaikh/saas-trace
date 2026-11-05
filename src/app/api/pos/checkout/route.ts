@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
-import { enforcePermission } from "@/lib/auth/rbac";
+import { verifyTenantAccess } from "@/lib/auth/serverAuth";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const permCheck = enforcePermission(req, "canOperatePOS", body.role);
-    if (!permCheck.authorized) {
-      return permCheck.response!;
-    }
-
     const {
       shopId,
       customerId,
@@ -33,6 +28,12 @@ export async function POST(req: NextRequest) {
 
     if (!shopId) {
       return NextResponse.json({ error: "Missing required shopId" }, { status: 400 });
+    }
+
+    // Verify tenant authorization & role permissions
+    const authCheck = await verifyTenantAccess(req, shopId, "canOperatePOS");
+    if (!authCheck.authorized) {
+      return authCheck.response!;
     }
 
     if (!items || !Array.isArray(items) || items.length === 0) {

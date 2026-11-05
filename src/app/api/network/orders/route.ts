@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
+import { verifyTenantAccess } from "@/lib/auth/serverAuth";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const shopId = searchParams.get("shopId");
 
-    let query = supabase.from("network_orders").select("*, network_order_items(*)");
+    if (shopId) {
+      const authCheck = await verifyTenantAccess(req, shopId);
+      if (!authCheck.authorized) {
+        return authCheck.response!;
+      }
+    }
 
+    let query = supabase.from("network_orders").select("*, network_order_items(*)");
     if (shopId) {
       query = query.or(`buyer_shop_id.eq.${shopId},supplier_shop_id.eq.${shopId}`);
     }
@@ -39,6 +46,12 @@ export async function POST(req: NextRequest) {
         { error: "buyerShopId, supplierShopId, and items array are required" },
         { status: 400 }
       );
+    }
+
+    // Verify tenant authorization for buyer shop
+    const authCheck = await verifyTenantAccess(req, buyerShopId);
+    if (!authCheck.authorized) {
+      return authCheck.response!;
     }
 
     const subtotalPaise = items.reduce(

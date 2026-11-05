@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyTenantAccess } from "@/lib/auth/serverAuth";
 
 // Helper function to call Google Gemini API with fallback
 async function callGeminiAPI(
@@ -46,6 +47,13 @@ export async function POST(req: NextRequest) {
 
     if (!message) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
+    }
+
+    if (shopId) {
+      const authCheck = await verifyTenantAccess(req, shopId);
+      if (!authCheck.authorized) {
+        return authCheck.response!;
+      }
     }
 
     const lower = message.toLowerCase().trim();

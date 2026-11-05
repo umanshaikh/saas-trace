@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
-import { enforcePermission } from "@/lib/auth/rbac";
+import { verifyTenantAccess } from "@/lib/auth/serverAuth";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const permCheck = enforcePermission(req, "canProcessRefunds", body.role);
-    if (!permCheck.authorized) {
-      return permCheck.response!;
-    }
-
     const { shopId, invoiceId, reason = "Customer return", refundAmountPaise, returnItems } = body;
 
     if (!shopId || !invoiceId) {
       return NextResponse.json({ error: "Missing required shopId or invoiceId" }, { status: 400 });
+    }
+
+    // Verify tenant authorization & role permission (Refunds require Manager or Owner)
+    const authCheck = await verifyTenantAccess(req, shopId, "canProcessRefunds");
+    if (!authCheck.authorized) {
+      return authCheck.response!;
     }
 
     // 1. Fetch the target invoice

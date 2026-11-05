@@ -207,49 +207,58 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     };
   });
 
-  // Sync with Supabase & load local cache on mount
-  const syncWithSupabase = async () => {
+  // Load authentic tenant data scoped strictly to the target shop
+  const loadShopData = async (targetShopId: string) => {
     try {
-      setSyncStatus("SYNCING");
-      // 1. Fetch shops from Supabase
-      const { data: dbShops, error: shopErr } = await supabase.from("shops").select("*");
-      if (!shopErr && dbShops && dbShops.length > 0) {
-        setAllShops((prev) => {
-          const dbIds = new Set(dbShops.map((s: any) => s.id));
-          const localOnly = prev.filter((s) => !dbIds.has(s.id));
-          const merged = [...dbShops, ...localOnly];
-          if (typeof window !== "undefined") localStorage.setItem("trace_shops", JSON.stringify(merged));
-          return merged;
-        });
-      }
-
-      // 2. Fetch products from Supabase (clean, real products only)
-      const { data: dbProducts, error: prodErr } = await supabase.from("products").select("*");
+      // 1. Fetch products for target shop
+      const { data: dbProducts, error: prodErr } = await supabase
+        .from("products")
+        .select("*")
+        .eq("shop_id", targetShopId);
       if (!prodErr && dbProducts) {
         setProducts(dbProducts);
-        if (typeof window !== "undefined") localStorage.setItem("trace_products", JSON.stringify(dbProducts));
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`trace_products_${targetShopId}`, JSON.stringify(dbProducts));
+        }
+      } else if (typeof window !== "undefined") {
+        const cached = localStorage.getItem(`trace_products_${targetShopId}`);
+        if (cached) {
+          try { setProducts(JSON.parse(cached)); } catch (e) {}
+        } else {
+          setProducts([]);
+        }
       }
 
-      // 3. Fetch categories from Supabase
-      const { data: dbCategories, error: catErr } = await supabase.from("categories").select("*");
+      // 2. Fetch categories for target shop
+      const { data: dbCategories, error: catErr } = await supabase
+        .from("categories")
+        .select("*")
+        .eq("shop_id", targetShopId);
       if (!catErr && dbCategories && dbCategories.length > 0) {
-        setCategories((prev) => {
-          const dbIds = new Set(dbCategories.map((c: any) => c.id));
-          const localOnly = prev.filter((c) => !dbIds.has(c.id));
-          return [...dbCategories, ...localOnly];
-        });
+        setCategories(dbCategories);
       }
 
-      // 4. Fetch customers from Supabase
-      const { data: dbCustomers, error: custErr } = await supabase.from("customers").select("*");
+      // 3. Fetch customers for target shop
+      const { data: dbCustomers, error: custErr } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("shop_id", targetShopId);
       if (!custErr && dbCustomers) {
         setCustomers(dbCustomers);
+      } else if (typeof window !== "undefined") {
+        const cached = localStorage.getItem(`trace_customers_${targetShopId}`);
+        if (cached) {
+          try { setCustomers(JSON.parse(cached)); } catch (e) {}
+        } else {
+          setCustomers([]);
+        }
       }
 
-      // 5. Fetch invoices from Supabase with items
+      // 4. Fetch invoices with items for target shop
       const { data: dbInvoices, error: invErr } = await supabase
         .from("invoices")
         .select("*, invoice_items(*)")
+        .eq("shop_id", targetShopId)
         .order("created_at", { ascending: false });
       if (!invErr && dbInvoices && dbInvoices.length > 0) {
         const normalizedInvoices: Invoice[] = dbInvoices.map((inv: any) => ({
@@ -263,19 +272,36 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
           })),
         }));
         setInvoices(normalizedInvoices);
+      } else if (typeof window !== "undefined") {
+        const cached = localStorage.getItem(`trace_invoices_${targetShopId}`);
+        if (cached) {
+          try { setInvoices(JSON.parse(cached)); } catch (e) {}
+        } else {
+          setInvoices([]);
+        }
       }
 
-      // 6. Fetch expenses from Supabase
-      const { data: dbExpenses, error: expErr } = await supabase.from("expenses").select("*");
+      // 5. Fetch expenses for target shop
+      const { data: dbExpenses, error: expErr } = await supabase
+        .from("expenses")
+        .select("*")
+        .eq("shop_id", targetShopId);
       if (!expErr && dbExpenses) {
         setExpenses(dbExpenses);
+      } else if (typeof window !== "undefined") {
+        const cached = localStorage.getItem(`trace_expenses_${targetShopId}`);
+        if (cached) {
+          try { setExpenses(JSON.parse(cached)); } catch (e) {}
+        } else {
+          setExpenses([]);
+        }
       }
 
-      // 7. Fetch onboarding_progress for active shop from Supabase
+      // 6. Fetch onboarding_progress for active shop from Supabase
       const { data: dbProgress, error: progErr } = await supabase
         .from("onboarding_progress")
         .select("*")
-        .eq("shop_id", activeShopId)
+        .eq("shop_id", targetShopId)
         .maybeSingle();
 
       if (!progErr && dbProgress) {
@@ -290,9 +316,36 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         };
         setOnboardingProgress(restored);
         if (typeof window !== "undefined") {
-          localStorage.setItem(`trace_onboarding_${activeShopId}`, JSON.stringify(restored));
+          localStorage.setItem(`trace_onboarding_${targetShopId}`, JSON.stringify(restored));
         }
       }
+    } catch (e) {
+      console.warn("Tenant loadShopData warning:", e);
+    }
+  };
+
+  // Sync with Supabase & load local cache on mount
+  const syncWithSupabase = async () => {
+    try {
+      setSyncStatus("SYNCING");
+      // 1. Fetch authorized shops from Supabase
+      let shopQuery = supabase.from("shops").select("*");
+      if (authUser?.id) {
+        shopQuery = shopQuery.or(`owner_id.eq.${authUser.id},email.eq.${authUser.email}`);
+      }
+      const { data: dbShops, error: shopErr } = await shopQuery;
+      if (!shopErr && dbShops && dbShops.length > 0) {
+        setAllShops((prev) => {
+          const dbIds = new Set(dbShops.map((s: any) => s.id));
+          const localOnly = prev.filter((s) => !dbIds.has(s.id));
+          const merged = [...dbShops, ...localOnly];
+          if (typeof window !== "undefined") localStorage.setItem("trace_shops", JSON.stringify(merged));
+          return merged;
+        });
+      }
+
+      // 2. Load tenant data scoped strictly to activeShopId
+      await loadShopData(activeShopId);
 
       setSyncStatus("SYNCED");
     } catch (err) {
@@ -415,6 +468,9 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       setAuthUser(data.user);
 
       if (data.user) {
+        if (typeof window !== "undefined") {
+          document.cookie = `trace_auth_user_id=${data.user.id}; path=/; max-age=31536000; SameSite=Lax`;
+        }
         // Query user's registered shops from Supabase
         const { data: userShops } = await supabase
           .from("shops")
@@ -501,6 +557,9 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       });
 
       const profileId = data.user?.id || `usr_${Date.now()}`;
+      if (typeof window !== "undefined" && data.user?.id) {
+        document.cookie = `trace_auth_user_id=${data.user.id}; path=/; max-age=31536000; SameSite=Lax`;
+      }
       await supabase.from("profiles").upsert([
         {
           id: profileId,
@@ -522,6 +581,21 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
     setAuthUser(null);
     setAuthSession(null);
+    setUserRole("STAFF");
+    setProducts([]);
+    setCustomers([]);
+    setInvoices([]);
+    setExpenses([]);
+    if (typeof window !== "undefined") {
+      document.cookie = "trace_onboarding_completed=false; path=/; max-age=0";
+      document.cookie = "trace_auth_user_id=; path=/; max-age=0";
+      localStorage.removeItem("trace_shops");
+      localStorage.removeItem("trace_products");
+      localStorage.removeItem("trace_customers");
+      localStorage.removeItem("trace_invoices");
+      localStorage.removeItem("trace_expenses");
+      localStorage.removeItem("trace_active_shop_id");
+    }
   };
 
   const resetPassword = async (email: string) => {
@@ -631,23 +705,28 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
 
   const switchShop = (shopId: string) => {
     const target = allShops.find((s) => s.id === shopId);
-    if (target) {
-      setActiveShopId(shopId);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("trace_active_shop_id", shopId);
-        const cachedOnboarding = localStorage.getItem(`trace_onboarding_${shopId}`);
-        const isDemo = shopId.startsWith("shop_0") || shopId === "shop_default" || shopId === "11111111-1111-1111-1111-111111111111";
-        let isDone = isDemo;
-        if (cachedOnboarding) {
-          try {
-            const parsed = JSON.parse(cachedOnboarding);
-            setOnboardingProgress(parsed);
-            isDone = Boolean(parsed.isCompleted);
-          } catch (e) {}
-        }
-        document.cookie = `trace_onboarding_completed=${isDone ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
-      }
+    if (!target) {
+      showToast("error", "Unauthorized Shop Access", "You do not have permission to access or switch to this shop.");
+      return;
     }
+
+    setActiveShopId(shopId);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("trace_active_shop_id", shopId);
+      const cachedOnboarding = localStorage.getItem(`trace_onboarding_${shopId}`);
+      const isDemo = shopId.startsWith("shop_0") || shopId === "shop_default" || shopId === "11111111-1111-1111-1111-111111111111";
+      let isDone = isDemo;
+      if (cachedOnboarding) {
+        try {
+          const parsed = JSON.parse(cachedOnboarding);
+          setOnboardingProgress(parsed);
+          isDone = Boolean(parsed.isCompleted);
+        } catch (e) {}
+      }
+      document.cookie = `trace_onboarding_completed=${isDone ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
+    }
+    // Refresh tenant data for newly switched shop
+    loadShopData(shopId);
   };
 
   const saveOnboardingStep = async (step: number, data?: Partial<OnboardingStepData>, markStepComplete = true) => {
@@ -985,6 +1064,18 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         },
       ]);
 
+      // Seed membership for shop owner
+      await supabase.from("memberships").upsert([
+        {
+          id: `mem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          shop_id: newShop.id,
+          profile_id: ownerId,
+          role: "OWNER",
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+      ], { onConflict: "shop_id,profile_id" });
+
       // Seed initial onboarding progress in Supabase
       await supabase.from("onboarding_progress").upsert([
         {
@@ -997,6 +1088,12 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
           updated_at: new Date().toISOString(),
         },
       ], { onConflict: "user_id,shop_id" });
+
+      // Reset local collections to an authentic clean slate for the newly created tenant
+      setProducts([]);
+      setCustomers([]);
+      setInvoices([]);
+      setExpenses([]);
 
       if (error) {
         console.warn("Supabase register shop notice:", error.message);

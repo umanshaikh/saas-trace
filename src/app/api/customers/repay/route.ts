@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
+import { verifyTenantAccess } from "@/lib/auth/serverAuth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,6 +18,12 @@ export async function POST(req: NextRequest) {
         { error: "shopId, customerId, and valid amountPaise > 0 are required" },
         { status: 400 }
       );
+    }
+
+    // Verify tenant authorization (members of this shop can process customer repayments)
+    const authCheck = await verifyTenantAccess(req, shopId);
+    if (!authCheck.authorized) {
+      return authCheck.response!;
     }
 
     const payPaise = Number(amountPaise);
