@@ -36,9 +36,13 @@ import {
   Loader2,
   HelpCircle,
   ShoppingBag,
+  Save,
+  LogOut,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Modal } from "@/components/ui/modal";
 
 const INDIAN_STATES = [
   "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
@@ -81,11 +85,12 @@ export default function OnboardingPage() {
     showToast,
   } = useTrace();
 
-  // Current Step: 1 to 8 (initialized from saved onboarding progress)
+  // Current Step: 1 to 8 (resumed from saved progress)
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
 
-  // STEP 2: Shop Information State
+  // STEP 2: Shop Information State (Dynamic registered shop name)
   const [shopName, setShopName] = useState(activeShop.name || "");
   const [ownerName, setOwnerName] = useState(currentUser.full_name || "");
   const [category, setCategory] = useState(activeShop.business_type || "grocery");
@@ -142,10 +147,12 @@ export default function OnboardingPage() {
 
   // Resume Incomplete Onboarding on Mount
   useEffect(() => {
+    if (activeShop?.name && !shopName) {
+      setShopName(activeShop.name);
+    }
+
     if (onboardingProgress) {
-      if (onboardingProgress.isCompleted) {
-        // If already completed, user can revisit or jump to dashboard
-      } else if (onboardingProgress.currentStep > 1) {
+      if (!onboardingProgress.isCompleted && onboardingProgress.currentStep > 1) {
         setCurrentStep(onboardingProgress.currentStep);
       }
 
@@ -173,7 +180,7 @@ export default function OnboardingPage() {
         if (d.payments.acceptCustomerCredit !== undefined) setAcceptCustomerCredit(d.payments.acceptCustomerCredit);
       }
     }
-  }, [onboardingProgress]);
+  }, [onboardingProgress, activeShop]);
 
   // Keep first invoice selected product synced
   useEffect(() => {
@@ -193,6 +200,59 @@ export default function OnboardingPage() {
     { num: 7, label: "First Bill", icon: Receipt },
     { num: 8, label: "Complete", icon: CheckCircle2 },
   ];
+
+  // Visual Progress Calculations
+  const completedStepsList = onboardingProgress?.completedSteps || [];
+  const completedCount = completedStepsList.length;
+  const remainingCount = Math.max(0, 8 - completedCount);
+  const completionPercentage = Math.round((completedCount / 8) * 100);
+  const dynamicEstimatedMins = Math.max(1, Math.ceil(remainingCount * 0.75));
+
+  // Current display name (strictly dynamic)
+  const currentDisplayName = shopName.trim() || activeShop.name || "Your Store";
+
+  // Helper to collect current step state
+  const getCurrentStepData = () => ({
+    shop: {
+      name: shopName.trim(),
+      ownerName: ownerName.trim(),
+      businessCategory: category,
+      phone: phone.trim(),
+      email: email.trim(),
+      address: address.trim(),
+      city: city.trim(),
+      state: state.trim(),
+      pincode: pincode.trim(),
+    },
+    gst: {
+      isGstRegistered,
+      gstin: gstin.trim().toUpperCase(),
+      legalBusinessName: legalName.trim(),
+      state: gstState,
+      registrationType,
+    },
+    payments: {
+      acceptCash,
+      acceptUpi,
+      upiVpa: acceptUpi ? upiVpa.trim() : undefined,
+      acceptCard,
+      acceptBankTransfer,
+      acceptCustomerCredit,
+    },
+  });
+
+  // Save Progress & Continue Later
+  const handleSaveAndContinueLater = async () => {
+    setIsSaving(true);
+    try {
+      await saveOnboardingStep(currentStep, getCurrentStepData(), false);
+      showToast("info", "Progress Saved", `Step ${currentStep} progress stored. Resuming available from dashboard.`);
+      router.push("/dashboard");
+    } finally {
+      setIsSaving(false);
+      setIsExitModalOpen(false);
+    }
+  };
 
   // ==========================================
   // HANDLERS FOR EACH STEP
@@ -239,7 +299,7 @@ export default function OnboardingPage() {
         },
       });
 
-      showToast("success", "Shop Details Saved", `${shopName} profile updated.`);
+      showToast("success", "Shop Details Saved", `${shopName.trim()} profile updated.`);
       setCurrentStep(3);
     } catch (err: any) {
       showToast("error", "Save Failed", err?.message);
@@ -337,6 +397,27 @@ export default function OnboardingPage() {
     setProdTitle("");
     setProdSku(`SKU-${Math.floor(1000 + Math.random() * 9000)}`);
     setProdBarcode(`890${Math.floor(100000000 + Math.random() * 900000000)}`);
+  };
+
+  // Quick 1-Click Test Product for Step 7 fallback
+  const handleAddQuickSampleProduct = () => {
+    const sample = {
+      name: "Standard Retail Sample Item",
+      selling_price_paise: 10000,
+      cost_price_paise: 7500,
+      purchase_price_paise: 7500,
+      stock_quantity: 25,
+      current_stock: 25,
+      low_stock_threshold: 5,
+      sku: `SAMPLE-${Math.floor(100 + Math.random() * 900)}`,
+      barcode: `890${Math.floor(100000000 + Math.random() * 900000000)}`,
+      unit: "pcs",
+      tax_rate_percent: 5,
+      tax_rate: 5,
+    };
+    const created = addProduct(sample);
+    setSelectedProdId(created.id);
+    showToast("success", "Sample Product Ready", "Added sample item (₹100) for instant bill testing.");
   };
 
   // Step 4: CSV Import
@@ -517,7 +598,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
         },
       });
 
-      showToast("success", "Invoice Generated!", `Invoice #${inv.invoice_number} successfully recorded.`);
+      showToast("success", "Invoice Generated!", `Invoice #${inv.invoice_number} successfully recorded in database.`);
     } catch (e: any) {
       showToast("error", "Invoice Failed", e?.message || "Failed to generate invoice");
     } finally {
@@ -536,10 +617,19 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
     }
   };
 
+  // Active Payment Methods Summary List
+  const enabledPaymentList = [
+    acceptCash && "Cash",
+    acceptUpi && `UPI QR (${upiVpa || "Enabled"})`,
+    acceptCard && "Card Swipe",
+    acceptCustomerCredit && "PayLater Khata",
+    acceptBankTransfer && "Bank Transfer",
+  ].filter(Boolean) as string[];
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-indigo-500/20 selection:text-indigo-400">
       {/* Top Wizard Navigation Bar */}
-      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40 px-4 py-3">
+      <header className="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40 px-4 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center gap-2">
@@ -549,52 +639,86 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               <span className="font-extrabold text-base tracking-wider text-white">TRACE</span>
             </Link>
             <span className="text-slate-600">/</span>
-            <div className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1 rounded-md text-xs font-medium text-slate-300">
+            <div className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1 rounded-md text-xs font-medium text-slate-200">
               <Store className="h-3.5 w-3.5 text-indigo-400" />
-              <span>{activeShop.name}</span>
+              <span className="font-semibold">{currentDisplayName}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              onClick={() => router.push("/dashboard")}
-              className="text-xs text-slate-400 hover:text-white"
+              onClick={() => setIsExitModalOpen(true)}
+              className="text-xs text-slate-300 border-slate-700 hover:bg-slate-800 gap-1.5"
             >
-              Exit to Dashboard
+              <LogOut className="h-3.5 w-3.5 text-slate-400" />
+              <span>Exit to Dashboard</span>
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Progress Steps Header */}
-      <div className="border-b border-slate-800/60 bg-slate-900/30 px-4 py-3 overflow-x-auto">
-        <div className="max-w-4xl mx-auto flex items-center justify-between min-w-[620px]">
+      {/* Visual Progress Dashboard */}
+      <div className="border-b border-slate-800/60 bg-slate-900/40 px-4 py-2.5">
+        <div className="max-w-4xl mx-auto space-y-2">
+          <div className="flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-white">Step {currentStep} of 8:</span>
+              <span className="text-indigo-400 font-medium">{stepsList[currentStep - 1]?.label}</span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="text-emerald-400 font-medium">
+                <CheckCircle2 className="inline h-3.5 w-3.5 mr-1 text-emerald-400" />
+                {completedCount} completed
+              </span>
+              <span className="text-slate-600">•</span>
+              <span className="text-slate-400">
+                {remainingCount} remaining
+              </span>
+              <span className="text-slate-600">•</span>
+              <span className="font-extrabold text-white bg-indigo-600/30 px-2 py-0.5 rounded text-[10px] text-indigo-300 border border-indigo-500/30">
+                {completionPercentage}% complete
+              </span>
+            </div>
+          </div>
+
+          {/* Animated Gradient Progress Bar */}
+          <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden shadow-inner">
+            <div
+              className="h-full bg-gradient-to-r from-indigo-500 via-violet-500 to-emerald-500 transition-all duration-300"
+              style={{ width: `${Math.max(6, completionPercentage)}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Horizontal Steps Navigation Pill Bar */}
+      <div className="border-b border-slate-800/60 bg-slate-900/20 px-4 py-2 overflow-x-auto">
+        <div className="max-w-4xl mx-auto flex items-center justify-between min-w-[640px]">
           {stepsList.map((step) => {
             const isCurrent = currentStep === step.num;
-            const isDone = onboardingProgress?.completedSteps?.includes(step.num) || currentStep > step.num;
+            const isDone = completedStepsList.includes(step.num) || currentStep > step.num;
             const Icon = step.icon;
 
             return (
               <button
                 key={step.num}
                 onClick={() => {
-                  // Allow jumping to already completed steps or current
                   if (isDone || isCurrent || step.num <= (onboardingProgress?.currentStep || 1)) {
                     setCurrentStep(step.num);
                   }
                 }}
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                   isCurrent
                     ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
                     : isDone
                     ? "text-emerald-400 hover:bg-slate-800/60"
-                    : "text-slate-500 hover:text-slate-300 cursor-not-allowed opacity-60"
+                    : "text-slate-500 hover:text-slate-400 opacity-60"
                 }`}
               >
                 <div
-                  className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  className={`h-4 w-4 rounded-full flex items-center justify-center text-[9px] font-bold ${
                     isCurrent
                       ? "bg-white text-indigo-600"
                       : isDone
@@ -602,7 +726,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                       : "bg-slate-800 text-slate-400"
                   }`}
                 >
-                  {isDone ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : step.num}
+                  {isDone ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : step.num}
                 </div>
                 <span>{step.label}</span>
               </button>
@@ -611,13 +735,13 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
         </div>
       </div>
 
-      {/* Main Wizard Step Container */}
+      {/* Main Wizard Step Viewport */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col justify-center">
         {/* ======================================================== */}
         {/* STEP 1: WELCOME SCREEN */}
         {/* ======================================================== */}
         {currentStep === 1 && (
-          <div className="text-center space-y-6 max-w-xl mx-auto py-8 animate-in fade-in duration-200">
+          <div className="text-center space-y-6 max-w-xl mx-auto py-6 animate-in fade-in duration-200">
             <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-white shadow-2xl shadow-indigo-500/30">
               <Sparkles className="h-10 w-10 animate-pulse" />
             </div>
@@ -627,37 +751,37 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 Welcome to TRACE
               </h1>
               <p className="text-sm sm:text-base text-slate-400 font-medium">
-                Let's set up your business in a few simple steps.
+                Let's set up <span className="text-indigo-400 font-bold">{currentDisplayName}</span> in a few simple steps.
               </p>
             </div>
 
-            {/* Estimated Setup Time Pill */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-indigo-300">
+            {/* Estimated Setup Time: 5-7 minutes */}
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-indigo-300 shadow-sm">
               <Clock className="h-3.5 w-3.5 text-indigo-400" />
-              <span>Estimated setup time: <strong>~3 minutes</strong></span>
+              <span>Estimated setup time: <strong>5–7 minutes</strong> ({dynamicEstimatedMins} mins remaining)</span>
             </div>
 
             {/* Feature Highlights Grid */}
-            <div className="grid grid-cols-2 gap-3 text-left pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left pt-2">
               <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-900/40 space-y-1">
                 <Receipt className="h-4 w-4 text-indigo-400" />
-                <h4 className="text-xs font-bold text-white">F1 Fast Billing</h4>
-                <p className="text-[11px] text-slate-400">Scan barcodes, apply GST, and print 80mm thermal slips.</p>
+                <h4 className="text-xs font-bold text-white">F1 Fast POS Counter</h4>
+                <p className="text-[11px] text-slate-400">Barcode scanner input, split payments, and 80mm ESC/POS thermal printing.</p>
               </div>
               <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-900/40 space-y-1">
                 <Package className="h-4 w-4 text-emerald-400" />
-                <h4 className="text-xs font-bold text-white">Live Inventory</h4>
-                <p className="text-[11px] text-slate-400">Real-time stock deduction, batches & low-stock alerts.</p>
+                <h4 className="text-xs font-bold text-white">Real-Time Inventory</h4>
+                <p className="text-[11px] text-slate-400">Atomic inventory deduction per bill, low-stock alerts, and CSV import.</p>
               </div>
               <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-900/40 space-y-1">
                 <Percent className="h-4 w-4 text-amber-400" />
-                <h4 className="text-xs font-bold text-white">GST Compliance</h4>
-                <p className="text-[11px] text-slate-400">CGST, SGST & IGST calculations ready for GSTR filings.</p>
+                <h4 className="text-xs font-bold text-white">Indian GST Reporting</h4>
+                <p className="text-[11px] text-slate-400">CGST (50%) + SGST (50%) intra-state or IGST inter-state compliant tax slips.</p>
               </div>
               <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-900/40 space-y-1">
                 <CreditCard className="h-4 w-4 text-purple-400" />
                 <h4 className="text-xs font-bold text-white">PayLater Khata</h4>
-                <p className="text-[11px] text-slate-400">Customer credit ledger with automated WhatsApp reminders.</p>
+                <p className="text-[11px] text-slate-400">Customer credit ledgers with direct WhatsApp receipt sharing.</p>
               </div>
             </div>
 
@@ -681,16 +805,16 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
           <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in duration-200">
             <div className="border-b border-slate-800 pb-4">
               <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Step 2 of 8</span>
-              <h2 className="text-xl font-bold text-white mt-1">Shop Information</h2>
+              <h2 className="text-xl font-bold text-white mt-1">Shop Profile & Address</h2>
               <p className="text-xs text-slate-400">
-                Provide legal establishment and address details printed on your receipts.
+                Provide legal business establishment and contact details printed on your receipts.
               </p>
             </div>
 
             <form onSubmit={handleSaveShopInfo} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Shop / Store Name *</label>
+                  <label className="text-xs font-semibold text-slate-300 mb-1 block">Shop / Store Legal Name *</label>
                   <input
                     type="text"
                     value={shopName}
@@ -809,7 +933,8 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 </div>
               </div>
 
-              <div className="pt-4 flex items-center justify-between border-t border-slate-800">
+              {/* Navigation Bar */}
+              <div className="pt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
                 <Button
                   type="button"
                   variant="ghost"
@@ -820,15 +945,29 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                   <span>Back</span>
                 </Button>
 
-                <Button
-                  type="submit"
-                  disabled={isSaving}
-                  className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
-                >
-                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  <span>Save & Continue</span>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveAndContinueLater}
+                    disabled={isSaving}
+                    className="text-xs text-slate-300 border-slate-700 hover:bg-slate-800 gap-1"
+                  >
+                    <Save className="h-3.5 w-3.5 text-slate-400" />
+                    <span>Save & Continue Later</span>
+                  </Button>
+
+                  <Button
+                    type="submit"
+                    disabled={isSaving}
+                    className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
+                  >
+                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    <span>Save & Continue</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </form>
           </div>
@@ -855,7 +994,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {[
                     { id: "YES", title: "Yes, Registered", desc: "I have a 15-digit GSTIN number" },
-                    { id: "NO", title: "No, Unregistered", desc: "Turnover below GST threshold" },
+                    { id: "NO", title: "No, Unregistered", desc: "Turnover below threshold / exempt" },
                     { id: "LATER", title: "Configure Later", desc: "I will add GST details later" },
                   ].map((opt) => (
                     <div
@@ -863,7 +1002,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                       onClick={() => setIsGstRegistered(opt.id as any)}
                       className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
                         isGstRegistered === opt.id
-                          ? "border-indigo-500 bg-indigo-500/10 text-white"
+                          ? "border-indigo-500 bg-indigo-500/10 text-white shadow-sm"
                           : "border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700"
                       }`}
                     >
@@ -939,7 +1078,8 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 </div>
               )}
 
-              <div className="pt-4 flex items-center justify-between border-t border-slate-800">
+              {/* Navigation Bar */}
+              <div className="pt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
                 <Button
                   type="button"
                   variant="ghost"
@@ -950,15 +1090,41 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                   <span>Back</span>
                 </Button>
 
-                <Button
-                  type="submit"
-                  disabled={isSaving}
-                  className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
-                >
-                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  <span>Save & Continue</span>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      skipOnboardingStep(3);
+                      setCurrentStep(4);
+                    }}
+                    className="text-xs text-slate-400 hover:text-white"
+                  >
+                    Skip for Now
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveAndContinueLater}
+                    disabled={isSaving}
+                    className="text-xs text-slate-300 border-slate-700 hover:bg-slate-800 gap-1"
+                  >
+                    <Save className="h-3.5 w-3.5 text-slate-400" />
+                    <span>Save & Continue Later</span>
+                  </Button>
+
+                  <Button
+                    type="submit"
+                    disabled={isSaving}
+                    className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
+                  >
+                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    <span>Save & Continue</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </form>
           </div>
@@ -972,13 +1138,13 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
             <div className="border-b border-slate-800 pb-4 flex items-center justify-between">
               <div>
                 <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Step 4 of 8</span>
-                <h2 className="text-xl font-bold text-white mt-1">Inventory Catalog Setup</h2>
+                <h2 className="text-xl font-bold text-white mt-1">Inventory Setup</h2>
                 <p className="text-xs text-slate-400">
-                  Add products manually or import your catalog via CSV spreadsheet.
+                  Add products manually, import spreadsheet, or skip to configure later.
                 </p>
               </div>
               <Badge variant="outline" className="text-xs border-indigo-500/40 text-indigo-400 font-bold">
-                {products.length} Products in Catalog
+                {products.length} Products Added
               </Badge>
             </div>
 
@@ -1142,8 +1308,8 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               </div>
             )}
 
-            {/* Products Table Preview */}
-            {products.length > 0 && (
+            {/* Products Table Preview or Helpful Empty State */}
+            {products.length > 0 ? (
               <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-2">
                 <p className="text-xs font-bold text-slate-300 flex items-center justify-between">
                   <span>Current Inventory Items ({products.length}):</span>
@@ -1161,9 +1327,18 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                   ))}
                 </div>
               </div>
+            ) : (
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/30 flex items-start gap-2.5 text-xs text-slate-400">
+                <Info className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-slate-200">Optional Step: </span>
+                  If you prefer to add products later, you can click "Skip for Now". Products can also be added anytime via the Inventory page or automatically created during barcode scans at the POS counter.
+                </div>
+              </div>
             )}
 
-            <div className="pt-4 flex items-center justify-between border-t border-slate-800">
+            {/* Navigation Bar */}
+            <div className="pt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
               <Button
                 type="button"
                 variant="ghost"
@@ -1186,6 +1361,19 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 >
                   Skip for Now
                 </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveAndContinueLater}
+                  disabled={isSaving}
+                  className="text-xs text-slate-300 border-slate-700 hover:bg-slate-800 gap-1"
+                >
+                  <Save className="h-3.5 w-3.5 text-slate-400" />
+                  <span>Save & Continue Later</span>
+                </Button>
+
                 <Button
                   type="button"
                   onClick={handleContinueFromInventory}
@@ -1206,9 +1394,9 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
           <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in duration-200">
             <div className="border-b border-slate-800 pb-4">
               <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Step 5 of 8</span>
-              <h2 className="text-xl font-bold text-white mt-1">Employee & Team Setup</h2>
+              <h2 className="text-xl font-bold text-white mt-1">Employee & Staff Setup</h2>
               <p className="text-xs text-slate-400">
-                Invite cashiers and store managers with role-based access permissions.
+                Invite cashiers and store managers with role-based permissions, or operate solo.
               </p>
             </div>
 
@@ -1217,7 +1405,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 <div>
                   <h4 className="text-xs font-bold text-white">Do you have employees or counter staff?</h4>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    You can add staff now or operate as a solo store owner.
+                    Add staff members with tailored roles, or operate as a solo store owner.
                   </p>
                 </div>
                 <div className="flex rounded-lg bg-slate-950 border border-slate-800 p-0.5 text-xs">
@@ -1228,7 +1416,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                       hasStaff ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
                     }`}
                   >
-                    Yes
+                    Yes, Add Staff
                   </button>
                   <button
                     type="button"
@@ -1237,12 +1425,12 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                       !hasStaff ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
                     }`}
                   >
-                    Solo
+                    Solo Owner
                   </button>
                 </div>
               </div>
 
-              {hasStaff && (
+              {hasStaff ? (
                 <form onSubmit={handleAddEmployee} className="p-4 rounded-xl border border-indigo-500/30 bg-indigo-500/5 space-y-3">
                   <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
                     <UserPlus className="h-4 w-4 text-indigo-400" />
@@ -1307,6 +1495,14 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                     </Button>
                   </div>
                 </form>
+              ) : (
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/30 flex items-start gap-2.5 text-xs text-slate-400">
+                  <Info className="h-4 w-4 text-indigo-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold text-slate-200">Solo Store Mode: </span>
+                    You are configured as the primary administrator. You can invite cashiers and store managers anytime under Settings & Team without interrupting business operations.
+                  </div>
+                </div>
               )}
 
               {/* Employees List */}
@@ -1335,7 +1531,8 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               )}
             </div>
 
-            <div className="pt-4 flex items-center justify-between border-t border-slate-800">
+            {/* Navigation Bar */}
+            <div className="pt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
               <Button
                 type="button"
                 variant="ghost"
@@ -1358,6 +1555,19 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 >
                   Skip for Now
                 </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveAndContinueLater}
+                  disabled={isSaving}
+                  className="text-xs text-slate-300 border-slate-700 hover:bg-slate-800 gap-1"
+                >
+                  <Save className="h-3.5 w-3.5 text-slate-400" />
+                  <span>Save & Continue Later</span>
+                </Button>
+
                 <Button
                   type="button"
                   onClick={handleContinueFromEmployees}
@@ -1475,7 +1685,8 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               )}
             </div>
 
-            <div className="pt-4 flex items-center justify-between border-t border-slate-800">
+            {/* Navigation Bar */}
+            <div className="pt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
               <Button
                 type="button"
                 variant="ghost"
@@ -1486,16 +1697,30 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 <span>Back</span>
               </Button>
 
-              <Button
-                type="button"
-                disabled={isSaving}
-                onClick={handleSavePayments}
-                className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
-              >
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                <span>Save & Continue to Test Bill</span>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveAndContinueLater}
+                  disabled={isSaving}
+                  className="text-xs text-slate-300 border-slate-700 hover:bg-slate-800 gap-1"
+                >
+                  <Save className="h-3.5 w-3.5 text-slate-400" />
+                  <span>Save & Continue Later</span>
+                </Button>
+
+                <Button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={handleSavePayments}
+                  className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
+                >
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  <span>Save & Continue to Test Bill</span>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -1514,20 +1739,32 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
             </div>
 
             {products.length === 0 ? (
-              <div className="p-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-center space-y-3">
-                <AlertCircle className="mx-auto h-8 w-8 text-amber-400" />
-                <h4 className="text-sm font-bold text-white">No Inventory Items Found</h4>
-                <p className="text-xs text-amber-300 max-w-sm mx-auto">
-                  You need at least one product in your inventory catalog to test generate your first tax invoice.
+              <div className="p-6 rounded-2xl border border-indigo-500/30 bg-slate-900/60 text-center space-y-3">
+                <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 mx-auto">
+                  <Package className="h-6 w-6" />
+                </div>
+                <h4 className="text-sm font-bold text-white">No Inventory Items Available Yet</h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  You skipped inventory setup earlier. You can instantly create a quick test item (₹100) right now to test the billing engine!
                 </p>
-                <Button
-                  size="sm"
-                  onClick={() => setCurrentStep(4)}
-                  className="font-bold text-xs gap-1.5 bg-amber-600 hover:bg-amber-500 text-white"
-                >
-                  <Package className="h-3.5 w-3.5" />
-                  <span>Go to Inventory & Add Product</span>
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    onClick={handleAddQuickSampleProduct}
+                    className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>+ Add Instant Test Item (₹100)</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setCurrentStep(4)}
+                    className="text-xs text-slate-300 border-slate-700 hover:bg-slate-800"
+                  >
+                    Go Back to Inventory Setup
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
@@ -1663,7 +1900,7 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                       <span>Invoice #{generatedInvoice.invoice_number} Generated Successfully!</span>
                     </div>
                     <p className="text-[11px] text-slate-300">
-                      Total: {formatPaise(generatedInvoice.total_amount_paise)} • Method: {generatedInvoice.payment_method} • Stock automatically deducted.
+                      Total: {formatPaise(generatedInvoice.total_amount_paise)} • Method: {generatedInvoice.payment_method} • Stock automatically deducted in database.
                     </p>
                     <div className="flex items-center gap-2">
                       <Button
@@ -1681,7 +1918,8 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               </div>
             )}
 
-            <div className="pt-4 flex items-center justify-between border-t border-slate-800">
+            {/* Navigation Bar */}
+            <div className="pt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
               <Button
                 type="button"
                 variant="ghost"
@@ -1692,14 +1930,28 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 <span>Back</span>
               </Button>
 
-              <Button
-                type="button"
-                onClick={() => setCurrentStep(8)}
-                className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
-              >
-                <span>Continue to Completion</span>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveAndContinueLater}
+                  disabled={isSaving}
+                  className="text-xs text-slate-300 border-slate-700 hover:bg-slate-800 gap-1"
+                >
+                  <Save className="h-3.5 w-3.5 text-slate-400" />
+                  <span>Save & Continue Later</span>
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={() => setCurrentStep(8)}
+                  className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
+                >
+                  <span>Continue to Completion</span>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -1718,52 +1970,79 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
                 Congratulations! Your shop is ready.
               </h1>
               <p className="text-xs sm:text-sm text-slate-400 font-medium">
-                {activeShop.name} is now fully operational and connected to the TRACE Cloud.
+                <span className="text-emerald-400 font-bold">{currentDisplayName}</span> is now fully configured and live on the TRACE Cloud.
               </p>
             </div>
 
-            {/* Checklist Summary */}
-            <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 text-left space-y-2.5 text-xs">
-              <div className="flex items-center gap-2 text-emerald-400">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span className="text-slate-200">Shop Profile & Address Verified ({activeShop.city}, {activeShop.state})</span>
-              </div>
-              <div className="flex items-center gap-2 text-emerald-400">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span className="text-slate-200">
-                  GST Policy: {activeShop.gstin ? `Registered (${activeShop.gstin})` : "Exempt / Unregistered"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-emerald-400">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span className="text-slate-200">Inventory Catalog: {products.length} Products Active</span>
-              </div>
-              <div className="flex items-center gap-2 text-emerald-400">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span className="text-slate-200">
-                  Team Members: {employees.length > 0 ? `${employees.length} Staff Invited` : "Operating as Store Owner"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-emerald-400">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                <span className="text-slate-200">Payment Modes: Cash, UPI, Card Active</span>
-              </div>
-              {invoices.length > 0 && (
-                <div className="flex items-center gap-2 text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  <span className="text-slate-200">First Live Invoice Recorded (#{invoices[0].invoice_number})</span>
+            {/* Comprehensive Dynamic Setup Summary Cards */}
+            <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/60 text-left space-y-3 text-xs shadow-lg">
+              <h4 className="font-bold text-white border-b border-slate-800 pb-2 flex items-center justify-between">
+                <span>Verified Setup Summary</span>
+                <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 text-[10px]">Active & Verified</Badge>
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Store Name & City</span>
+                  <p className="font-semibold text-white">{currentDisplayName} ({city || activeShop.city}, {state || activeShop.state})</p>
                 </div>
-              )}
+
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Business Category</span>
+                  <p className="font-semibold text-white capitalize">
+                    {BUSINESS_CATEGORIES.find((c) => c.id === (category || activeShop.business_type))?.label || category}
+                  </p>
+                </div>
+
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">GST Legal Registration</span>
+                  <p className="font-semibold text-white">
+                    {isGstRegistered === "YES" && gstin
+                      ? `${gstin} (${registrationType})`
+                      : isGstRegistered === "NO"
+                      ? "Exempt / Unregistered"
+                      : "Deferred to Settings"}
+                  </p>
+                </div>
+
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Inventory Catalog</span>
+                  <p className="font-semibold text-emerald-400">{products.length} Products in Stock</p>
+                </div>
+
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Team & Roles</span>
+                  <p className="font-semibold text-white">
+                    {employees.length > 0 ? `${employees.length} Staff Invited` : "Operating as Solo Store Owner"}
+                  </p>
+                </div>
+
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Payment Methods</span>
+                  <p className="font-semibold text-white truncate max-w-[200px]">{enabledPaymentList.join(", ")}</p>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-800 pt-2 flex items-center justify-between text-[11px]">
+                <span className="text-slate-400">First POS Transaction Status:</span>
+                <span className="font-bold text-emerald-400">
+                  {generatedInvoice
+                    ? `#${generatedInvoice.invoice_number} (${formatPaise(generatedInvoice.total_amount_paise)} via ${generatedInvoice.payment_method})`
+                    : invoices.length > 0
+                    ? `#${invoices[0].invoice_number} (${formatPaise(invoices[0].total_amount_paise)})`
+                    : "Ready for first walk-in sale"}
+                </span>
+              </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => handleFinishOnboarding("/pos")}
-                className="p-4 rounded-xl border border-indigo-500/40 bg-indigo-600/20 hover:bg-indigo-600/30 text-white transition-all text-left space-y-1 shadow-lg shadow-indigo-500/10"
+                className="p-4 rounded-xl border border-indigo-500/40 bg-indigo-600/20 hover:bg-indigo-600/30 text-white transition-all text-left space-y-1 shadow-lg shadow-indigo-500/10 group"
               >
-                <Receipt className="h-5 w-5 text-indigo-400" />
+                <Receipt className="h-5 w-5 text-indigo-400 group-hover:scale-110 transition-transform" />
                 <h4 className="text-xs font-bold">Open POS Counter</h4>
                 <p className="text-[10px] text-slate-400">Start billing walk-in customers immediately.</p>
               </button>
@@ -1771,9 +2050,9 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               <button
                 type="button"
                 onClick={() => handleFinishOnboarding("/dashboard")}
-                className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 text-white transition-all text-left space-y-1"
+                className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 text-white transition-all text-left space-y-1 group"
               >
-                <Store className="h-5 w-5 text-emerald-400" />
+                <Store className="h-5 w-5 text-emerald-400 group-hover:scale-110 transition-transform" />
                 <h4 className="text-xs font-bold">Shop Dashboard</h4>
                 <p className="text-[10px] text-slate-400">View real sales reports, khata & stock trends.</p>
               </button>
@@ -1781,9 +2060,9 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               <button
                 type="button"
                 onClick={() => handleFinishOnboarding("/ai-assistant")}
-                className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 text-white transition-all text-left space-y-1"
+                className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 text-white transition-all text-left space-y-1 group"
               >
-                <Sparkles className="h-5 w-5 text-violet-400" />
+                <Sparkles className="h-5 w-5 text-violet-400 group-hover:scale-110 transition-transform" />
                 <h4 className="text-xs font-bold">Explore TRACE AI</h4>
                 <p className="text-[10px] text-slate-400">Ask questions about profit margins & GST.</p>
               </button>
@@ -1791,6 +2070,45 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
           </div>
         )}
       </main>
+
+      {/* EXIT CONFIRMATION MODAL (Preserves Progress) */}
+      <Modal
+        isOpen={isExitModalOpen}
+        onClose={() => setIsExitModalOpen(false)}
+        title="Exit Store Setup?"
+        description="Your onboarding progress will be automatically saved to your account."
+      >
+        <div className="space-y-4 pt-2 text-xs text-slate-300">
+          <p>
+            You are currently at <strong>Step {currentStep} of 8: {stepsList[currentStep - 1]?.label}</strong>. All details entered so far have been securely recorded. You can resume anytime by clicking the setup banner on your dashboard.
+          </p>
+          <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-[11px] flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-indigo-400" />
+            <span>Progress automatically synced with your cloud database and local device.</span>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-800">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsExitModalOpen(false)}
+              className="text-xs text-slate-400 hover:text-white"
+            >
+              Stay & Continue Setup
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleSaveAndContinueLater}
+              disabled={isSaving}
+              className="text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
+            >
+              {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              <span>Save & Exit to Dashboard</span>
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
