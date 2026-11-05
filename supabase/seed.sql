@@ -2,12 +2,11 @@
 -- TRACE PLATFORM — SEED DATA (PLANS & INITIAL DEMO DATA)
 -- ========================================================
 
--- Insert Initial Subscription Plans
+-- Insert Initial Subscription Plans (Paid Only: Starter ₹99, Pro ₹199, Business ₹399)
 INSERT INTO subscription_plans (
   id, name, description, monthly_price_paise, yearly_price_paise, max_products, max_team_members,
   has_ai_assistant, has_network_access, has_paylater, has_advanced_reports, is_active
 ) VALUES
-  ('free', 'Free Forever', 'Essential billing and product tracking for brand-new stores.', 0, 0, 50, 1, false, false, false, false, true),
   ('starter', 'Starter', 'Expanded products, basic reports & customer directory for growing shops.', 9900, 99900, 500, 3, false, false, true, false, true),
   ('pro', 'Pro Atelier', 'TRACE AI Business Assistant, PayLater credit ledger & advanced analytics.', 19900, 199900, 2500, 8, true, true, true, true, true),
   ('business', 'Business Enterprise', 'Full TRACE Network B2B access, multi-counter split, AutoPay & unlimited staff.', 39900, 399900, 10000, 25, true, true, true, true, true)
