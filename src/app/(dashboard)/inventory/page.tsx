@@ -47,6 +47,7 @@ export default function InventoryPage() {
     adjustStock,
     addCategory,
     importProductsCSV,
+    showToast,
   } = useTrace();
 
   const shopProducts = products.filter((p) => p.shop_id === activeShop.id);
@@ -59,6 +60,8 @@ export default function InventoryPage() {
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
   const [adjustDelta, setAdjustDelta] = useState(10);
   const [adjustReason, setAdjustReason] = useState<"RESTOCK" | "DAMAGED" | "CORRECTION">("RESTOCK");
@@ -115,10 +118,14 @@ export default function InventoryPage() {
   });
 
   const filteredProducts = shopProducts.filter((p) => {
+    const q = searchQuery.toLowerCase().trim();
+    const catName = shopCategories.find((c) => c.id === p.category_id)?.name.toLowerCase() || "";
     const matchesSearch =
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.barcode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.sku?.toLowerCase().includes(searchQuery.toLowerCase());
+      !q ||
+      p.name.toLowerCase().includes(q) ||
+      p.barcode?.toLowerCase().includes(q) ||
+      p.sku?.toLowerCase().includes(q) ||
+      catName.includes(q);
     const matchesCat =
       selectedCategory === "ALL" || p.category_id === selectedCategory;
     const stock = p.stock_quantity ?? p.current_stock ?? 0;
@@ -192,50 +199,79 @@ export default function InventoryPage() {
     setFormSku(`${prefix}-${random}`);
   };
 
-  const handleSaveProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formSellingRupees) return;
+    if (!formName.trim()) {
+      if (showToast) showToast("error", "Validation Error", "Product title is required.");
+      return;
+    }
 
-    if (editingProduct) {
-      updateProduct(editingProduct.id, {
-        name: formName.trim(),
-        category_id: formCategory,
-        sku: formSku,
-        barcode: formBarcode,
-        image_url: formImageUrl.trim() || undefined,
-        cost_price_paise: rupeesToPaise(Number(formCostRupees)),
-        purchase_price_paise: rupeesToPaise(Number(formCostRupees)),
-        selling_price_paise: rupeesToPaise(Number(formSellingRupees)),
-        stock_quantity: Number(formStock),
-        current_stock: Number(formStock),
-        low_stock_threshold: Number(formThreshold),
-        unit: formUnit,
-        tax_rate: Number(formTaxRate),
-        tax_rate_percent: Number(formTaxRate),
-        expiry_date: formExpiryDate || undefined,
-        batch_number: formBatchNumber || undefined,
-      });
-      setEditingProduct(null);
-    } else {
-      addProduct({
-        name: formName.trim(),
-        category_id: formCategory,
-        sku: formSku,
-        barcode: formBarcode,
-        image_url: formImageUrl.trim() || undefined,
-        cost_price_paise: rupeesToPaise(Number(formCostRupees)),
-        purchase_price_paise: rupeesToPaise(Number(formCostRupees)),
-        selling_price_paise: rupeesToPaise(Number(formSellingRupees)),
-        stock_quantity: Number(formStock),
-        current_stock: Number(formStock),
-        low_stock_threshold: Number(formThreshold),
-        unit: formUnit,
-        tax_rate: Number(formTaxRate),
-        tax_rate_percent: Number(formTaxRate),
-        expiry_date: formExpiryDate || undefined,
-        batch_number: formBatchNumber || undefined,
-      });
-      setIsAddModalOpen(false);
+    const sellingPrice = Number(formSellingRupees);
+    const costPrice = Number(formCostRupees) || 0;
+    const stockQty = Number(formStock);
+
+    if (isNaN(sellingPrice) || sellingPrice <= 0) {
+      if (showToast) showToast("error", "Invalid Selling Price", "Selling price must be greater than ₹0.");
+      return;
+    }
+
+    if (isNaN(costPrice) || costPrice < 0) {
+      if (showToast) showToast("error", "Invalid Cost Price", "Cost price cannot be negative.");
+      return;
+    }
+
+    if (isNaN(stockQty) || stockQty < 0) {
+      if (showToast) showToast("error", "Invalid Stock Quantity", "Stock quantity cannot be negative.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      if (editingProduct) {
+        updateProduct(editingProduct.id, {
+          name: formName.trim(),
+          category_id: formCategory,
+          sku: formSku,
+          barcode: formBarcode,
+          image_url: formImageUrl.trim() || undefined,
+          cost_price_paise: rupeesToPaise(costPrice),
+          purchase_price_paise: rupeesToPaise(costPrice),
+          selling_price_paise: rupeesToPaise(sellingPrice),
+          stock_quantity: stockQty,
+          current_stock: stockQty,
+          low_stock_threshold: Number(formThreshold) || 5,
+          unit: formUnit,
+          tax_rate: Number(formTaxRate) || 0,
+          tax_rate_percent: Number(formTaxRate) || 0,
+          expiry_date: formExpiryDate || undefined,
+          batch_number: formBatchNumber || undefined,
+        });
+        if (showToast) showToast("success", "Product Updated", `"${formName.trim()}" was updated successfully.`);
+        setEditingProduct(null);
+      } else {
+        addProduct({
+          name: formName.trim(),
+          category_id: formCategory,
+          sku: formSku,
+          barcode: formBarcode,
+          image_url: formImageUrl.trim() || undefined,
+          cost_price_paise: rupeesToPaise(costPrice),
+          purchase_price_paise: rupeesToPaise(costPrice),
+          selling_price_paise: rupeesToPaise(sellingPrice),
+          stock_quantity: stockQty,
+          current_stock: stockQty,
+          low_stock_threshold: Number(formThreshold) || 5,
+          unit: formUnit,
+          tax_rate: Number(formTaxRate) || 0,
+          tax_rate_percent: Number(formTaxRate) || 0,
+          expiry_date: formExpiryDate || undefined,
+          batch_number: formBatchNumber || undefined,
+        });
+        if (showToast) showToast("success", "Product Added", `"${formName.trim()}" was added to inventory.`);
+        setIsAddModalOpen(false);
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -607,16 +643,9 @@ export default function InventoryPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => {
-                                if (
-                                  confirm(
-                                    `Are you sure you want to delete "${prod.name}"?\n\nSafeguard: If this product has historical sales invoices, it will be safely deactivated (soft-deleted) to protect accounting integrity.`
-                                  )
-                                ) {
-                                  deleteProduct(prod.id);
-                                }
-                              }}
+                              onClick={() => setProductToDelete(prod)}
                               className="h-7 w-7 p-0 text-muted-foreground hover:text-rose-500"
+                              title="Archive product"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -630,8 +659,42 @@ export default function InventoryPage() {
 
               {filteredProducts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-muted-foreground text-xs">
-                    No products matched your search or filters. Click "Add New Product" to expand your catalog.
+                  <td colSpan={8} className="py-12 text-center text-xs">
+                    <div className="max-w-md mx-auto p-6 rounded-2xl border border-dashed border-border bg-accent/10 flex flex-col items-center">
+                      <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 mb-3">
+                        <Package className="h-6 w-6" />
+                      </div>
+                      <h4 className="text-sm font-bold text-foreground">
+                        {shopProducts.length === 0 ? "Your Inventory Catalog is Empty" : "No Matching Products Found"}
+                      </h4>
+                      <p className="text-xs text-muted-foreground mt-1 text-center">
+                        {shopProducts.length === 0
+                          ? "Get started by adding your first product to begin billing at the POS counter."
+                          : "Try adjusting your search query, barcode filter, or category selection."}
+                      </p>
+                      <div className="mt-4 flex items-center gap-2">
+                        {userRole !== "CASHIER" && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={openAddModal}
+                            className="gap-1.5 text-xs font-bold shadow-sm"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>Add Your First Product</span>
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => document.getElementById("csv-file-input")?.click()}
+                          className="gap-1.5 text-xs font-medium"
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                          <span>Import CSV</span>
+                        </Button>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -892,11 +955,49 @@ export default function InventoryPage() {
             >
               Cancel
             </Button>
-            <Button type="submit" variant="default" className="font-bold">
-              {editingProduct ? "Save Changes" : "Create Product"}
+            <Button type="submit" variant="default" className="font-bold gap-1.5" disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <span>{editingProduct ? "Save Changes" : "Create Product"}</span>
+              )}
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* CONFIRM ARCHIVE PRODUCT MODAL */}
+      <Modal
+        isOpen={!!productToDelete}
+        onClose={() => setProductToDelete(null)}
+        title="Archive Inventory Product?"
+        description={`Are you sure you want to archive "${productToDelete?.name}"?`}
+      >
+        <div className="space-y-3 pt-2 text-xs text-muted-foreground">
+          <p>
+            Safeguard guarantee: Historical sales invoices, receipts, and accounting ledgers referencing this item will remain 100% intact. The product will be safely deactivated from your active POS billing catalog.
+          </p>
+          <div className="flex justify-end gap-2 pt-3 border-t border-border/60">
+            <Button variant="ghost" size="sm" onClick={() => setProductToDelete(null)}>
+              Keep Product
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (productToDelete) {
+                  deleteProduct(productToDelete.id);
+                  setProductToDelete(null);
+                }
+              }}
+            >
+              Confirm Archive
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       {/* INLINE CATEGORY CREATION MODAL */}

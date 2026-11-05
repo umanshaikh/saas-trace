@@ -12,6 +12,7 @@ import {
   CreditCard,
   ShoppingBag,
   ExternalLink,
+  Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,12 +21,13 @@ import { Modal } from "@/components/ui/modal";
 import Link from "next/link";
 
 export default function CustomersPage() {
-  const { activeShop, customers, invoices, addCustomer } = useTrace();
+  const { activeShop, customers, invoices, addCustomer, deleteCustomer, showToast } = useTrace();
   const shopCustomers = customers.filter((c) => c.shop_id === activeShop.id);
   const shopInvoices = invoices.filter((i) => i.shop_id === activeShop.id);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [creditLimit, setCreditLimit] = useState(5000);
@@ -38,15 +40,25 @@ export default function CustomersPage() {
 
   const handleCreateCustomer = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) return;
+    if (!name.trim()) {
+      if (showToast) showToast("error", "Validation Error", "Customer name is required.");
+      return;
+    }
+
+    const cleanPhone = phone.replace(/[^0-9]/g, "");
+    if (cleanPhone.length < 10) {
+      if (showToast) showToast("error", "Invalid Phone", "Please enter a valid 10-digit mobile number.");
+      return;
+    }
 
     addCustomer({
       name: name.trim(),
       phone: phone.trim(),
-      credit_limit_paise: rupeesToPaise(Number(creditLimit)),
+      credit_limit_paise: rupeesToPaise(Number(creditLimit) || 0),
       outstanding_balance_paise: 0,
     });
 
+    if (showToast) showToast("success", "Customer Registered", `"${name.trim()}" is now enrolled in your customer directory.`);
     setIsAddModalOpen(false);
     setName("");
     setPhone("");
@@ -142,11 +154,22 @@ export default function CustomersPage() {
                       </td>
 
                       <td className="py-3 px-4 text-right">
-                        <Link href="/paylater">
-                          <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-500">
-                            Khata Details <ExternalLink className="h-3 w-3 ml-1" />
+                        <div className="flex items-center justify-end gap-1">
+                          <Link href="/paylater">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-500">
+                              Khata <ExternalLink className="h-3 w-3 ml-1" />
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setCustomerToDelete(cust)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-rose-500"
+                            title="Remove customer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
-                        </Link>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -154,8 +177,31 @@ export default function CustomersPage() {
 
                 {filteredCustomers.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-muted-foreground text-xs">
-                      No customers found. Click "Add New Customer" to register your store's patrons.
+                    <td colSpan={6} className="py-12 text-center text-xs">
+                      <div className="max-w-md mx-auto p-6 rounded-2xl border border-dashed border-border bg-accent/10 flex flex-col items-center">
+                        <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 mb-3">
+                          <Users className="h-6 w-6" />
+                        </div>
+                        <h4 className="text-sm font-bold text-foreground">
+                          {shopCustomers.length === 0 ? "Customer Directory is Empty" : "No Matching Customers Found"}
+                        </h4>
+                        <p className="text-xs text-muted-foreground mt-1 text-center">
+                          {shopCustomers.length === 0
+                            ? "Add your regular customers to track PayLater credit ledgers and fast-checkout by phone."
+                            : "Try searching with a different name or mobile number."}
+                        </p>
+                        <div className="mt-4">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => setIsAddModalOpen(true)}
+                            className="gap-1.5 text-xs font-bold shadow-sm"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>Add Your First Customer</span>
+                          </Button>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -164,6 +210,37 @@ export default function CustomersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* CONFIRM ARCHIVE CUSTOMER MODAL */}
+      <Modal
+        isOpen={!!customerToDelete}
+        onClose={() => setCustomerToDelete(null)}
+        title="Remove Customer Profile?"
+        description={`Are you sure you want to remove "${customerToDelete?.name || customerToDelete?.full_name}" from active directory?`}
+      >
+        <div className="space-y-3 pt-2 text-xs text-muted-foreground">
+          <p>
+            Safeguard guarantee: Historical sales invoices, PayLater transaction statements, and accounting records linked to this customer will remain permanently preserved.
+          </p>
+          <div className="flex justify-end gap-2 pt-3 border-t border-border/60">
+            <Button variant="ghost" size="sm" onClick={() => setCustomerToDelete(null)}>
+              Keep Profile
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (customerToDelete) {
+                  deleteCustomer(customerToDelete.id);
+                  setCustomerToDelete(null);
+                }
+              }}
+            >
+              Confirm Remove
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ADD CUSTOMER MODAL */}
       <Modal

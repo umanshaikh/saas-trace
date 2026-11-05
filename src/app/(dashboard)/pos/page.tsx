@@ -56,6 +56,7 @@ export default function POSPage() {
     createInvoice,
     refundInvoice,
     addCustomer,
+    showToast,
     isOnline,
     offlineQueue,
     isSyncingOffline,
@@ -81,6 +82,9 @@ export default function POSPage() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [overallDiscountPercent, setOverallDiscountPercent] = useState<number>(0);
+  const [discountType, setDiscountType] = useState<"PERCENT" | "FLAT">("PERCENT");
+  const [discountFlatRupees, setDiscountFlatRupees] = useState<number>(0);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const [isInterState, setIsInterState] = useState<boolean>(false);
 
   // Settlement & Payment Modals
@@ -233,12 +237,16 @@ export default function POSPage() {
     }
   };
 
-  // Filter products by search & category
+  // Filter products by search (name, barcode, SKU, category) & category selector
   const filteredProducts = shopProducts.filter((p) => {
+    const q = searchQuery.toLowerCase().trim();
+    const catName = shopCategories.find((c) => c.id === p.category_id)?.name.toLowerCase() || "";
     const matchesSearch =
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.barcode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.sku?.toLowerCase().includes(searchQuery.toLowerCase());
+      !q ||
+      p.name.toLowerCase().includes(q) ||
+      p.barcode?.toLowerCase().includes(q) ||
+      p.sku?.toLowerCase().includes(q) ||
+      catName.includes(q);
     const matchesCat =
       selectedCategory === "ALL" || p.category_id === selectedCategory;
     return matchesSearch && matchesCat;
@@ -250,9 +258,11 @@ export default function POSPage() {
     return sum + Math.max(0, itemGross - item.discountPaise);
   }, 0);
 
-  const discountAmountPaise = Math.round(
-    cartSubtotalPaise * (overallDiscountPercent / 100)
-  );
+  // Flexible Discount: Percentage or Fixed Amount (Rupees)
+  const discountAmountPaise =
+    discountType === "PERCENT"
+      ? Math.round(cartSubtotalPaise * (overallDiscountPercent / 100))
+      : Math.min(cartSubtotalPaise, rupeesToPaise(Number(discountFlatRupees) || 0));
 
   const discountedSubtotalPaise = Math.max(0, cartSubtotalPaise - discountAmountPaise);
 
@@ -262,6 +272,11 @@ export default function POSPage() {
     const itemTax = Math.round(Math.max(0, itemGross) * (taxRate / 100));
     return sum + itemTax;
   }, 0);
+
+  // Exact CGST, SGST & IGST Splits (Paise precision)
+  const cgstPaise = isInterState ? 0 : Math.floor(cartTaxPaise / 2);
+  const sgstPaise = isInterState ? 0 : cartTaxPaise - cgstPaise;
+  const igstPaise = isInterState ? cartTaxPaise : 0;
 
   const cartTotalPaise = discountedSubtotalPaise + cartTaxPaise;
 
@@ -274,11 +289,12 @@ export default function POSPage() {
     : cartTotalPaise;
   const cashChangePaise = Math.max(0, cashTenderedPaise - cartTotalPaise);
 
-  // Cart operations
+  // Cart operations with stock boundary protection
   const addToCart = (product: Product) => {
     const stock = product.stock_quantity ?? product.current_stock ?? 0;
     if (stock <= 0) {
-      alert(`Product ${product.name} is currently out of stock!`);
+      if (showToast) showToast("error", "Out of Stock", `"${product.name}" has 0 units remaining in inventory.`);
+      else alert(`Product ${product.name} is currently out of stock!`);
       return;
     }
 
@@ -286,7 +302,8 @@ export default function POSPage() {
       const existing = prev.find((i) => i.product.id === product.id);
       if (existing) {
         if (existing.quantity >= stock) {
-          alert(`Maximum in-stock quantity (${stock}) reached for ${product.name}!`);
+          if (showToast) showToast("error", "Stock Limit Reached", `Only ${stock} units of "${product.name}" available in stock.`);
+          else alert(`Maximum in-stock quantity (${stock}) reached for ${product.name}!`);
           return prev;
         }
         return prev.map((i) =>
@@ -306,7 +323,8 @@ export default function POSPage() {
             const stock = item.product.stock_quantity ?? item.product.current_stock ?? 0;
             if (newQty <= 0) return null;
             if (newQty > stock) {
-              alert(`Only ${stock} available in stock!`);
+              if (showToast) showToast("error", "Stock Limit Reached", `Cannot exceed available stock of ${stock} units.`);
+              else alert(`Only ${stock} available in stock!`);
               return item;
             }
             return { ...item, quantity: newQty };
@@ -335,8 +353,10 @@ export default function POSPage() {
     setCart([]);
     setSelectedCustomer(null);
     setOverallDiscountPercent(0);
+    setDiscountFlatRupees(0);
     setCashTenderedRupees("");
     setSplitCashRupees("");
+    setIsClearConfirmOpen(false);
   };
 
   // Generate UPI QR Code whenever UPI or SPLIT payment is opened
@@ -359,25 +379,36 @@ export default function POSPage() {
     }
   };
 
-  // Final Settlement Execution with Duplicate Guard
+  // Final Settlement Execution with Duplicate Guard & Inventory Safeguards
   const handleFinalizeBill = async () => {
     if (isProcessing || cart.length === 0) return;
+
+    // Rigid Inventory Stock Validation (Prevent selling beyond available stock)
+    for (const item of cart) {
+      const liveStock = item.product.stock_quantity ?? item.product.current_stock ?? 0;
+      if (item.quantity > liveStock) {
+        if (showToast) {
+          showToast("error", "Insufficient Stock", `Cannot sell ${item.quantity} units of "${item.product.name}". Only ${liveStock} units available.`);
+        } else {
+          alert(`Cannot sell ${item.quantity} units of "${item.product.name}". Only ${liveStock} units available in stock!`);
+        }
+        return;
+      }
+    }
 
     // Validate PayLater Credit
     if (paymentMethod === "PAYLATER") {
       if (!selectedCustomer) {
-        alert("Please select or add a customer to bill on PayLater credit!");
+        if (showToast) showToast("error", "Customer Required", "Please select or register a customer for PayLater credit.");
+        else alert("Please select or add a customer to bill on PayLater credit!");
         return;
       }
       const custDebt = selectedCustomer.outstanding_balance_paise ?? selectedCustomer.total_outstanding_paise ?? 0;
       const availableCredit =
         (selectedCustomer.credit_limit_paise || 500000) - custDebt;
       if (cartTotalPaise > availableCredit) {
-        alert(
-          `Credit limit exceeded! Customer only has ${formatPaise(
-            availableCredit
-          )} credit remaining.`
-        );
+        if (showToast) showToast("error", "Credit Limit Exceeded", `Customer only has ${formatPaise(availableCredit)} credit remaining.`);
+        else alert(`Credit limit exceeded! Customer only has ${formatPaise(availableCredit)} credit remaining.`);
         return;
       }
     }
@@ -423,7 +454,8 @@ export default function POSPage() {
         selectedCustomer?.name || selectedCustomer?.full_name || (paymentMethod === "PAYLATER" ? "Valued Client" : "Walk-in Customer"),
         selectedCustomer?.phone,
         billNotes,
-        isInterState
+        isInterState,
+        discountAmountPaise
       );
 
       // Play victory chime & confetti celebration
@@ -912,64 +944,182 @@ export default function POSPage() {
           ))}
 
           {cart.length === 0 && (
-            <div className="py-16 text-center text-xs text-muted-foreground">
-              <ShoppingBag className="mx-auto h-10 w-10 text-muted-foreground/30 mb-2" />
-              Cart is currently empty. Click on any item or scan a barcode to add.
+            <div className="py-10 px-4 text-center rounded-xl border border-dashed border-border/80 bg-accent/10 my-4">
+              <div className="mx-auto h-12 w-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 mb-3 shadow-inner">
+                <ShoppingBag className="h-6 w-6" />
+              </div>
+              <h4 className="text-xs font-bold text-foreground">Your Billing Cart is Empty</h4>
+              <p className="text-[11px] text-muted-foreground mt-1 max-w-[240px] mx-auto">
+                Ready to add items to bill. Quick ways to start:
+              </p>
+              <div className="mt-3.5 space-y-1.5 text-left text-[11px] text-muted-foreground bg-card/60 p-2.5 rounded-lg border border-border/60">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[9px] font-bold text-indigo-400">1</span>
+                  <span>Click any product from the catalog grid</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[9px] font-bold text-indigo-400">2</span>
+                  <span>Scan barcode via handheld laser scanner (F1)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[9px] font-bold text-indigo-400">3</span>
+                  <span>Search by product name, SKU or category</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
 
         {/* Bill Summary Calculations */}
-        <div className="border-t border-border/70 pt-3 space-y-1.5 text-xs">
+        <div className="border-t border-border/70 pt-3 space-y-2 text-xs">
           <div className="flex items-center justify-between text-muted-foreground">
             <span>Subtotal:</span>
             <span>{formatPaise(cartSubtotalPaise)}</span>
           </div>
 
-          {/* Discount Selector */}
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground flex items-center gap-1">
-              <Percent className="h-3 w-3" /> Invoice Discount:
-            </span>
-            <div className="flex items-center gap-1">
-              {[0, 5, 10, 15].map((pct) => (
+          {/* Discount Selector: Fixed Rupees vs Percentage */}
+          <div className="space-y-1.5 p-2 rounded-lg bg-accent/20 border border-border/50">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground flex items-center gap-1 font-medium">
+                <Percent className="h-3 w-3 text-indigo-400" /> Invoice Discount:
+              </span>
+              <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-md text-[10px]">
                 <button
-                  key={pct}
-                  onClick={() => setOverallDiscountPercent(pct)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                    overallDiscountPercent === pct
+                  type="button"
+                  onClick={() => setDiscountType("PERCENT")}
+                  className={`px-1.5 py-0.5 rounded font-bold transition-colors ${
+                    discountType === "PERCENT"
                       ? "bg-indigo-600 text-white"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {pct}%
+                  % Pct
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => setDiscountType("FLAT")}
+                  className={`px-1.5 py-0.5 rounded font-bold transition-colors ${
+                    discountType === "FLAT"
+                      ? "bg-indigo-600 text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  ₹ Flat
+                </button>
+              </div>
             </div>
+
+            {discountType === "PERCENT" ? (
+              <div className="flex items-center justify-between gap-1 pt-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[0, 5, 10, 15, 20].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setOverallDiscountPercent(pct)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        overallDiscountPercent === pct
+                          ? "bg-indigo-600 text-white"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    placeholder="Custom %"
+                    value={overallDiscountPercent || ""}
+                    onChange={(e) => setOverallDiscountPercent(Math.min(100, Math.max(0, Number(e.target.value))))}
+                    className="w-14 rounded border border-input bg-background px-1.5 py-0.5 text-[10px] text-right focus:outline-none"
+                  />
+                  <span className="text-[10px] text-muted-foreground">%</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-1 pt-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                  {[0, 20, 50, 100, 200].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setDiscountFlatRupees(amt)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        discountFlatRupees === amt
+                          ? "bg-indigo-600 text-white"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      ₹{amt}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-muted-foreground">₹</span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Custom ₹"
+                    value={discountFlatRupees || ""}
+                    onChange={(e) => setDiscountFlatRupees(Math.max(0, Number(e.target.value)))}
+                    className="w-16 rounded border border-input bg-background px-1.5 py-0.5 text-[10px] text-right focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {discountAmountPaise > 0 && (
             <div className="flex items-center justify-between text-emerald-500 font-semibold">
-              <span>Savings ({overallDiscountPercent}%):</span>
+              <span>Savings ({discountType === "PERCENT" ? `${overallDiscountPercent}%` : `Flat ₹${discountFlatRupees}`}):</span>
               <span>-{formatPaise(discountAmountPaise)}</span>
             </div>
           )}
 
           {/* Tax Breakdown & Inter-state toggle */}
-          <div className="flex items-center justify-between text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <span>Tax ({isInterState ? "IGST" : "CGST + SGST"}):</span>
-              <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isInterState}
-                  onChange={(e) => setIsInterState(e.target.checked)}
-                  className="rounded text-indigo-600 focus:ring-0 h-3 w-3"
-                />
-                <span>Inter-State</span>
-              </label>
+          <div className="space-y-1 pt-1">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <span>Tax Breakdown:</span>
+                <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isInterState}
+                    onChange={(e) => setIsInterState(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-0 h-3 w-3"
+                  />
+                  <span>Inter-State (IGST)</span>
+                </label>
+              </div>
+              <span className="font-semibold">+{formatPaise(cartTaxPaise)}</span>
             </div>
-            <span>+{formatPaise(cartTaxPaise)}</span>
+
+            {/* Explicit GST breakdown */}
+            {cartTaxPaise > 0 && (
+              <div className="pl-2 border-l border-border/60 text-[10px] text-muted-foreground space-y-0.5">
+                {isInterState ? (
+                  <div className="flex justify-between">
+                    <span>IGST (Integrated GST):</span>
+                    <span>+{formatPaise(igstPaise)}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex justify-between">
+                      <span>CGST (Central GST - 50%):</span>
+                      <span>+{formatPaise(cgstPaise)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>SGST (State GST - 50%):</span>
+                      <span>+{formatPaise(sgstPaise)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between text-base font-extrabold text-foreground border-t border-border/60 pt-2">
@@ -982,7 +1132,9 @@ export default function POSPage() {
         <div className="mt-4 grid grid-cols-3 gap-2">
           <Button
             variant="outline"
-            onClick={clearCart}
+            onClick={() => {
+              if (cart.length > 0) setIsClearConfirmOpen(true);
+            }}
             disabled={cart.length === 0}
             className="text-xs"
           >
@@ -990,7 +1142,7 @@ export default function POSPage() {
           </Button>
           <Button
             variant="default"
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || isProcessing}
             onClick={handleOpenCheckout}
             className="col-span-2 text-xs font-bold gap-1.5 shadow-md shadow-indigo-600/30"
           >
@@ -1259,10 +1411,30 @@ export default function POSPage() {
                     <span>-{formatPaise(completedInvoice.discount_paise)}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-muted-foreground">
-                  <span>GST Tax:</span>
-                  <span>{formatPaise(completedInvoice.tax_paise)}</span>
-                </div>
+                {completedInvoice.tax_paise > 0 ? (
+                  completedInvoice.is_interstate ? (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>IGST (Integrated Tax):</span>
+                      <span>+{formatPaise(completedInvoice.tax_paise)}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>CGST (Central Tax 50%):</span>
+                        <span>+{formatPaise(Math.floor(completedInvoice.tax_paise / 2))}</span>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>SGST (State Tax 50%):</span>
+                        <span>+{formatPaise(completedInvoice.tax_paise - Math.floor(completedInvoice.tax_paise / 2))}</span>
+                      </div>
+                    </>
+                  )
+                ) : (
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>GST Tax:</span>
+                    <span>₹0.00</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold text-sm border-t border-border/40 pt-1">
                   <span>Grand Total:</span>
                   <span>{formatPaise(completedInvoice.total_amount_paise)}</span>
@@ -1495,6 +1667,42 @@ export default function POSPage() {
           </div>
         </form>
       </Modal>
+
+      {/* CLEAR CART CONFIRMATION MODAL */}
+      <Modal
+        isOpen={isClearConfirmOpen}
+        onClose={() => setIsClearConfirmOpen(false)}
+        title="Clear Active Billing Cart?"
+        description={`Are you sure you want to remove all ${cart.length} item(s) from the current bill? This action cannot be undone.`}
+      >
+        <div className="flex justify-end gap-2 pt-4 border-t border-border/60">
+          <Button variant="ghost" size="sm" onClick={() => setIsClearConfirmOpen(false)}>
+            Keep Items
+          </Button>
+          <Button variant="destructive" size="sm" onClick={clearCart}>
+            Yes, Clear Cart
+          </Button>
+        </div>
+      </Modal>
+
+      {/* MOBILE STICKY FLOATING CART BAR */}
+      {cart.length > 0 && (
+        <div className="lg:hidden fixed bottom-16 left-3 right-3 z-40 bg-card/95 backdrop-blur-md border border-indigo-500/40 p-3 rounded-2xl shadow-2xl flex items-center justify-between animate-in slide-in-from-bottom-2">
+          <div>
+            <p className="text-[11px] text-muted-foreground font-medium">{cart.length} item{cart.length > 1 ? "s" : ""} selected</p>
+            <p className="text-sm font-extrabold text-foreground">{formatPaise(cartTotalPaise)}</p>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleOpenCheckout}
+            disabled={isProcessing}
+            className="font-bold text-xs gap-1.5 shadow-md shadow-indigo-600/30"
+          >
+            <Banknote className="h-3.5 w-3.5" />
+            <span>Pay {formatPaise(cartTotalPaise)}</span>
+          </Button>
+        </div>
+      )}
 
       {/* 7-STEP SHOPKEEPER ONBOARDING WIZARD MODAL */}
       <OnboardingWizardModal

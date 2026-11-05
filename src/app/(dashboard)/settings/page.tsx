@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTrace } from "@/context/TraceContext";
 import {
   Settings,
@@ -9,31 +9,65 @@ import {
   Shield,
   Save,
   CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default function SettingsPage() {
-  const { activeShop, updateActiveShop } = useTrace();
+  const { activeShop, updateActiveShop, showToast } = useTrace();
 
   const [shopName, setShopName] = useState(activeShop.name);
   const [city, setCity] = useState(activeShop.city);
-  const [gstin, setGstin] = useState(activeShop.gstin || "27AABCT1332L1Z5");
+  const [address, setAddress] = useState(activeShop.address_line1 || "");
+  const [phone, setPhone] = useState(activeShop.phone || "");
+  const [gstin, setGstin] = useState(activeShop.gstin || "");
   const [printerType, setPrinterType] = useState("THERMAL_80MM");
   const [receiptFooter, setReceiptFooter] = useState(
     "Thank you for shopping with us! Have a wonderful day."
   );
   const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setShopName(activeShop.name);
+    setCity(activeShop.city);
+    setAddress(activeShop.address_line1 || "");
+    setPhone(activeShop.phone || "");
+    setGstin(activeShop.gstin || "");
+  }, [activeShop]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateActiveShop({
-      name: shopName,
-      city: city,
-      gstin: gstin,
-    });
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 4000);
+
+    if (!shopName.trim()) {
+      if (showToast) showToast("error", "Store Name Required", "Please provide a valid store name.");
+      return;
+    }
+
+    if (gstin.trim()) {
+      const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+      if (!GSTIN_REGEX.test(gstin.trim().toUpperCase())) {
+        if (showToast) showToast("error", "Invalid GSTIN Format", "GSTIN must be 15 characters conforming to Indian GST format (e.g., 27ABCDE1234F1Z5).");
+        return;
+      }
+    }
+
+    setIsSaving(true);
+    try {
+      await updateActiveShop({
+        name: shopName.trim(),
+        city: city.trim(),
+        address_line1: address.trim(),
+        phone: phone.trim(),
+        gstin: gstin.trim().toUpperCase(),
+      });
+      setIsSaved(true);
+      if (showToast) showToast("success", "Settings Saved", "Store metadata updated successfully.");
+      setTimeout(() => setIsSaved(false), 4000);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -95,6 +129,32 @@ export default function SettingsPage() {
                   value={gstin}
                   onChange={(e) => setGstin(e.target.value)}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-foreground mb-1 block">
+                  Store Address
+                </label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="e.g. Shop 4, Market Road"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-foreground mb-1 block">
+                  Support / Counter Phone
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="e.g. +91 98765 43210"
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
 
@@ -163,8 +223,16 @@ export default function SettingsPage() {
             </span>
           )}
 
-          <Button type="submit" variant="default" className="gap-2 font-bold px-6">
-            <Save className="h-4 w-4" /> Save Settings
+          <Button type="submit" variant="default" className="gap-2 font-bold px-6" disabled={isSaving}>
+            {isSaving ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" /> Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4" /> Save Settings
+              </>
+            )}
           </Button>
         </div>
       </form>

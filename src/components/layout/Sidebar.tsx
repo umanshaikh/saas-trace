@@ -42,7 +42,7 @@ export function Sidebar({
   onClose?: () => void;
 }) {
   const pathname = usePathname();
-  const { activeShop, userRole, activeSubscription } = useTrace();
+  const { activeShop, currentUser, userRole, activeSubscription } = useTrace();
 
   const navGroups: { groupTitle: string; items: NavItem[] }[] = [
     {
@@ -220,15 +220,15 @@ export function Sidebar({
         {/* User / Merchant Profile Footer */}
         <div className="border-t border-border/60 p-3">
           <div className="flex items-center gap-2.5 p-2 rounded-lg bg-accent/20">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-xs shrink-0">
-              TR
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-600 text-white font-bold text-xs shrink-0 shadow-sm">
+              {currentUser?.full_name ? currentUser.full_name[0].toUpperCase() : "U"}
             </div>
-            <div className="truncate">
+            <div className="truncate min-w-0">
               <p className="text-xs font-semibold text-foreground truncate">
-                {activeShop.name}
+                {currentUser?.full_name || "Merchant"}
               </p>
-              <p className="text-[10px] text-muted-foreground capitalize">
-                {userRole} Account • Verified
+              <p className="text-[10px] text-muted-foreground capitalize truncate">
+                {userRole?.toLowerCase()} • {currentUser?.email || activeShop.name}
               </p>
             </div>
           </div>

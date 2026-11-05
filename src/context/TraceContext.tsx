@@ -118,10 +118,13 @@ interface TraceContextType {
     customerName?: string,
     customerPhone?: string,
     notes?: string,
-    isInterState?: boolean
+    isInterState?: boolean,
+    discountPaise?: number
   ) => Promise<Invoice>;
   refundInvoice: (invoiceId: string, reason: string, refundAmountPaise?: number) => Promise<{ success: boolean; error?: string }>;
   addCustomer: (customer: Partial<Customer>) => Customer;
+  deleteCustomer: (id: string) => void;
+  showToast: (type: "success" | "error" | "info", title: string, message?: string) => void;
   recordCustomerPayment: (customerId: string, amountPaise: number, paymentMethod: string, note?: string) => void;
   addExpense: (expense: Partial<Expense>) => void;
   createNetworkOrder: (supplierShopId: string, items: any[], deliveryType?: 'PICKUP' | 'SUPPLIER_DELIVERY', notes?: string) => NetworkOrder;
@@ -519,8 +522,40 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const [toasts, setToasts] = useState<{ id: string; type: "success" | "error" | "info"; title: string; message?: string }[]>([]);
+
+  const showToast = (type: "success" | "error" | "info", title: string, message?: string) => {
+    const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`;
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
+
   const switchRole = (role: Role) => {
     setUserRole(role);
+    if (!authUser) {
+      if (role === "OWNER") {
+        setCurrentUser((prev) => ({
+          ...prev,
+          full_name: "Vikram Sharma (Store Owner)",
+          email: "owner@trace.business",
+        }));
+      } else if (role === "MANAGER") {
+        setCurrentUser((prev) => ({
+          ...prev,
+          full_name: "Pooja Deshmukh (Inventory Lead)",
+          email: "manager@trace.business",
+        }));
+      } else if (role === "CASHIER") {
+        setCurrentUser((prev) => ({
+          ...prev,
+          full_name: "Rahul Vernekar (Counter Cashier)",
+          email: "cashier@trace.business",
+        }));
+      }
+    }
+    showToast("info", "Role Switched", `Active permissions updated to ${role}.`);
   };
 
   const updateActiveShop = async (updates: Partial<Shop>) => {
@@ -756,13 +791,15 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const { error } = await supabase.from("products").delete().eq("id", id);
-        if (error) console.warn("Supabase delete product notice:", error.message);
+        // Soft-delete to preserve sales transactions & foreign key relationships
+        const { error } = await supabase.from("products").update({ is_active: false }).eq("id", id);
+        if (error) console.warn("Supabase archive product notice:", error.message);
         else setSyncStatus("SYNCED");
       } catch (err) {
         console.warn("Supabase delete error:", err);
       }
     })();
+    showToast("info", "Product Archived", "Product was safely removed from your active catalog while preserving sales history.");
   };
 
   const adjustStock = (productId: string, quantityDelta: number, reason: string, notes?: string) => {
@@ -996,13 +1033,13 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     customerName?: string,
     customerPhone?: string,
     notes?: string,
-    isInterState: boolean = false
+    isInterState: boolean = false,
+    discountPaise: number = 0
   ): Promise<Invoice> => {
     // 1. Calculate totals on server/engine in exact paise
     const subtotalPaise = items.reduce((sum, item) => sum + (item.line_total_paise ?? item.total_paise ?? 0), 0);
     const taxPaise = items.reduce((sum, item) => sum + (item.tax_paise ?? 0), 0);
-    const discountPaise = 0;
-    const totalAmountPaise = subtotalPaise + taxPaise - discountPaise;
+    const totalAmountPaise = Math.max(0, subtotalPaise + taxPaise - discountPaise);
     const balanceAmountPaise = Math.max(0, totalAmountPaise - paidAmountPaise);
 
     let paymentStatus: "PAID" | "PARTIALLY_PAID" | "UNPAID" = "PAID";
@@ -1287,6 +1324,18 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     return newCustomer;
   };
 
+  const deleteCustomer = (id: string) => {
+    setCustomers((prev) => prev.filter((c) => c.id !== id));
+    (async () => {
+      try {
+        await supabase.from("customers").delete().eq("id", id);
+      } catch (e) {
+        console.warn("Supabase customer delete notice:", e);
+      }
+    })();
+    showToast("info", "Customer Removed", "Customer record removed from active directory while preserving past billing records.");
+  };
+
   const recordCustomerPayment = (
     customerId: string,
     amountPaise: number,
@@ -1468,6 +1517,8 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         createInvoice,
         refundInvoice,
         addCustomer,
+        deleteCustomer,
+        showToast,
         recordCustomerPayment,
         addExpense,
         createNetworkOrder,
@@ -1478,6 +1529,35 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
+
+      {/* Global Floating Toast Notification Container */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`pointer-events-auto p-3.5 rounded-xl border shadow-xl backdrop-blur-md animate-in slide-in-from-bottom-3 duration-200 text-xs ${
+              t.type === "success"
+                ? "bg-emerald-950/90 border-emerald-500/40 text-emerald-200"
+                : t.type === "error"
+                ? "bg-rose-950/90 border-rose-500/40 text-rose-200"
+                : "bg-slate-900/90 border-indigo-500/40 text-indigo-200"
+            }`}
+          >
+            <p className="font-bold text-foreground flex items-center justify-between">
+              <span>{t.title}</span>
+              <button
+                onClick={() => setToasts((prev) => prev.filter((item) => item.id !== t.id))}
+                className="opacity-60 hover:opacity-100 ml-2"
+              >
+                ✕
+              </button>
+            </p>
+            {t.message && (
+              <p className="mt-1 text-[11px] opacity-90 leading-relaxed font-sans">{t.message}</p>
+            )}
+          </div>
+        ))}
+      </div>
     </TraceContext.Provider>
   );
 }

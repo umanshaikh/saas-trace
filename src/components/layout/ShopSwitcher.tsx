@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export function ShopSwitcher() {
-  const { activeShop, allShops, switchShop } = useTrace();
+  const { activeShop, allShops, switchShop, registerNewShop, showToast } = useTrace();
   const [isOpen, setIsOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -28,28 +28,26 @@ export function ShopSwitcher() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleCreateShop = (e: React.FormEvent) => {
+  const handleCreateShop = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newShopName.trim()) return;
 
-    // Simulated new shop creation
-    const newId = `shop_${Date.now()}`;
-    const created = {
-      id: newId,
-      name: newShopName.trim(),
-      slug: newShopName.toLowerCase().replace(/[^a-z0-9]/g, "-"),
-      business_type: newBusinessType,
-      city: newCity,
-      currency: "INR",
-      locale: "en-IN",
-      gstin: `27ABCDE${Math.floor(1000 + Math.random() * 9000)}F1Z5`,
-      access_status: "ACTIVE" as const,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    try {
+      await registerNewShop({
+        name: newShopName.trim(),
+        business_type: newBusinessType,
+        city: newCity,
+        email: `${newShopName.toLowerCase().replace(/[^a-z0-9]/g, "")}@trace.business`,
+      });
+      if (showToast) {
+        showToast("success", "Shop Created", `${newShopName.trim()} is now your active store.`);
+      }
+    } catch (err: any) {
+      if (showToast) {
+        showToast("error", "Creation Failed", err?.message || "Could not register shop");
+      }
+    }
 
-    allShops.push(created as any);
-    switchShop(newId);
     setNewShopName("");
     setIsAddModalOpen(false);
     setIsOpen(false);

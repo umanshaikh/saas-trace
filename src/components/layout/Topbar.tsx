@@ -77,13 +77,13 @@ export function Topbar({ onToggleSidebar }: TopbarProps) {
           {isDarkMode ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-slate-700" />}
         </button>
 
-        {/* User Pill */}
-        <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-border/60">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xs shadow-sm">
-            {currentUser?.full_name ? currentUser.full_name[0] : "U"}
+        {/* User Pill with actual authenticated name & role */}
+        <div className="flex items-center gap-2 pl-2 border-l border-border/60">
+          <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0">
+            {currentUser?.full_name ? currentUser.full_name[0].toUpperCase() : "U"}
           </div>
-          <div className="text-left text-xs leading-none">
-            <p className="font-semibold text-foreground truncate max-w-[100px]">
+          <div className="text-left text-xs leading-none hidden sm:block">
+            <p className="font-semibold text-foreground truncate max-w-[130px]">
               {currentUser?.full_name || "Merchant"}
             </p>
             <p className="text-[10px] text-muted-foreground capitalize mt-0.5">
