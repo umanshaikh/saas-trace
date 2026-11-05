@@ -28,11 +28,15 @@ import {
   FileText,
   RotateCcw,
   Volume2,
+  Wifi,
+  WifiOff,
+  Upload,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
+import { OnboardingWizardModal } from "@/components/pos/OnboardingWizardModal";
 import QRCode from "qrcode";
 import confetti from "canvas-confetti";
 
@@ -52,6 +56,12 @@ export default function POSPage() {
     createInvoice,
     refundInvoice,
     addCustomer,
+    isOnline,
+    offlineQueue,
+    isSyncingOffline,
+    syncOfflineQueue,
+    isDemoMode,
+    toggleDemoMode,
   } = useTrace();
 
   // Shop items
@@ -91,12 +101,27 @@ export default function POSPage() {
   const [newCustPhone, setNewCustPhone] = useState("");
   const [newCustCreditLimit, setNewCustCreditLimit] = useState(5000);
 
+  // Onboarding Wizard Modal
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+
   // Bill History & Refund Modals
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
   const [refundingInvoice, setRefundingInvoice] = useState<any | null>(null);
   const [refundReason, setRefundReason] = useState("Customer requested return");
   const [isRefunding, setIsRefunding] = useState(false);
+
+  const handleSyncQueue = async () => {
+    const res = await syncOfflineQueue();
+    if (res.synced > 0) {
+      playBeep(1046, 0.15);
+      alert(`Synchronized ${res.synced} offline transactions to cloud database!`);
+    } else if (res.failed > 0) {
+      alert(`Sync completed with ${res.failed} pending items. Please check network and retry.`);
+    } else {
+      alert("All offline bills are already synchronized!");
+    }
+  };
 
   // Audio Beep for Hardware Barcode Scanner & POS Actions
   const playBeep = (freq = 920, duration = 0.09) => {
@@ -498,34 +523,122 @@ export default function POSPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-5.5rem)] flex-col gap-4 lg:flex-row animate-in fade-in duration-150">
-      {/* Print Styles for 80mm ESC/POS Thermal Printer */}
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          #pos-thermal-slip, #pos-thermal-slip * {
-            visibility: visible;
-          }
-          #pos-thermal-slip {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 80mm !important;
-            max-width: 80mm !important;
-            margin: 0 !important;
-            padding: 8px !important;
-            background: #fff !important;
-            color: #000 !important;
-            font-family: monospace !important;
-            font-size: 11px !important;
-          }
-        }
-      `}</style>
+    <div className="flex flex-col gap-3 h-[calc(100vh-5.5rem)] animate-in fade-in duration-150">
+      {/* Top POS Operational Header: Connectivity, Demo Sandbox, Onboarding */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          {/* Connectivity Status Pill */}
+          {!isOnline ? (
+            <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/40 gap-1.5 py-1 px-2.5 font-bold text-xs">
+              <WifiOff className="h-3.5 w-3.5 animate-pulse text-amber-400" />
+              <span>Offline Mode Active • {offlineQueue.length} Bills Queued</span>
+            </Badge>
+          ) : offlineQueue.length > 0 ? (
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/40 gap-1.5 py-1 px-2.5 font-bold text-xs">
+                <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                <span>Online • {offlineQueue.length} Pending Sync</span>
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSyncQueue}
+                disabled={isSyncingOffline}
+                className="h-7 text-xs gap-1 border-amber-500/40 text-amber-400 hover:bg-amber-500/10 font-bold"
+              >
+                {isSyncingOffline ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Upload className="h-3 w-3" />
+                )}
+                <span>Sync Now</span>
+              </Button>
+            </div>
+          ) : (
+            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 gap-1.5 py-1 px-2.5 font-bold text-xs">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              <span>Online • Cloud Synced</span>
+            </Badge>
+          )}
 
-      {/* LEFT SECTION: Catalog & Search (60%) */}
-      <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
+          {isDemoMode && (
+            <Badge variant="destructive" className="bg-rose-500/15 text-rose-400 border-rose-500/30 text-xs font-bold gap-1">
+              Sandbox Demo Mode
+            </Badge>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsOnboardingOpen(true)}
+            className="h-7 text-xs gap-1.5 text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 font-bold"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Setup Guide (7 Steps)</span>
+          </Button>
+
+          <Button
+            variant={isDemoMode ? "destructive" : "secondary"}
+            size="sm"
+            onClick={() => toggleDemoMode()}
+            className="h-7 text-xs font-bold gap-1"
+          >
+            {isDemoMode ? "Exit Demo Mode" : "Demo Sandbox"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Demo Sandbox Alert Banner */}
+      {isDemoMode && (
+        <div className="p-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-300 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>DEMO SANDBOX ACTIVE:</strong> Invoices generated in this mode are kept in-memory to test hardware scanners, receipt printers, and workflows. Live Supabase database records are unaffected.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => toggleDemoMode(false)}
+            className="h-6 text-xs text-amber-300 hover:text-white font-bold"
+          >
+            Exit Demo
+          </Button>
+        </div>
+      )}
+
+      {/* Main Two-Column POS Layout */}
+      <div className="flex flex-1 flex-col gap-4 lg:flex-row min-h-0">
+        {/* Print Styles for 80mm ESC/POS Thermal Printer */}
+        <style jsx global>{`
+          @media print {
+            body * {
+              visibility: hidden;
+            }
+            #pos-thermal-slip, #pos-thermal-slip * {
+              visibility: visible;
+            }
+            #pos-thermal-slip {
+              position: absolute;
+              left: 0;
+              top: 0;
+              width: 80mm !important;
+              max-width: 80mm !important;
+              margin: 0 !important;
+              padding: 8px !important;
+              background: #fff !important;
+              color: #000 !important;
+              font-family: monospace !important;
+              font-size: 11px !important;
+            }
+          }
+        `}</style>
+
+        {/* LEFT SECTION: Catalog & Search (60%) */}
+        <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
         {/* Top Control Bar: Search & Actions */}
         <div className="flex items-center gap-2 mb-3">
           <div className="relative flex-1">
@@ -1101,6 +1214,13 @@ export default function POSPage() {
                   GSTIN: {activeShop.gstin || "27AABCT1332L1Z5"}
                 </p>
                 <p className="mt-1 font-bold">Tax Invoice #{completedInvoice.invoice_number}</p>
+                {completedInvoice.is_offline && (
+                  <div className="my-1">
+                    <span className="inline-block px-2 py-0.5 rounded bg-amber-500/20 text-amber-500 font-bold text-[9px] uppercase border border-amber-500/40">
+                      Offline Billed • Queued for Cloud Sync
+                    </span>
+                  </div>
+                )}
                 <p className="text-[10px] text-muted-foreground">
                   {new Date(completedInvoice.created_at || Date.now()).toLocaleString()}
                 </p>
@@ -1375,6 +1495,14 @@ export default function POSPage() {
           </div>
         </form>
       </Modal>
+
+      {/* 7-STEP SHOPKEEPER ONBOARDING WIZARD MODAL */}
+      <OnboardingWizardModal
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+        onNavigateToPOS={() => setIsOnboardingOpen(false)}
+      />
+      </div>
     </div>
   );
 }

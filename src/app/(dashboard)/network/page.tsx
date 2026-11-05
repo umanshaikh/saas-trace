@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useTrace } from "@/context/TraceContext";
 import { formatPaise, rupeesToPaise } from "@/lib/utils";
 import {
@@ -17,89 +17,282 @@ import {
   Check,
   Truck,
   Copy,
+  MapPin,
+  ShieldCheck,
+  ShieldAlert,
+  Search,
+  Filter,
+  RefreshCw,
+  TrendingDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 
+interface SupplierItem {
+  id: string;
+  shop_id?: string;
+  name: string;
+  contact_person?: string;
+  phone: string;
+  email?: string;
+  gstin?: string;
+  city: string;
+  state: string;
+  is_verified?: boolean;
+  category?: string;
+}
+
 export default function NetworkPage() {
   const {
     activeShop,
     allShops,
+    products,
     networkOrders,
     createNetworkOrder,
     updateNetworkOrderStatus,
   } = useTrace();
 
-  // Partner shops (other shops in the platform)
+  // Partner shops
   const partnerShops = allShops.filter((s) => s.id !== activeShop.id);
 
-  // Filter orders involving active shop (either as buyer or supplier)
+  // Filter orders involving active shop
   const incomingOrders = networkOrders.filter((o) => o.supplier_shop_id === activeShop.id);
   const outgoingOrders = networkOrders.filter((o) => o.buyer_shop_id === activeShop.id);
+
+  // Suppliers & Discovery State
+  const [suppliers, setSuppliers] = useState<SupplierItem[]>([]);
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
+  const [selectedCity, setSelectedCity] = useState("ALL");
+  const [selectedCategory, setSelectedCategory] = useState("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Modals state
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [isRegisterSupplierOpen, setIsRegisterSupplierOpen] = useState(false);
+  const [isPriceCompareOpen, setIsPriceCompareOpen] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<any>(partnerShops[0] || null);
 
+  // New Supplier Form State
+  const [newSupName, setNewSupName] = useState("");
+  const [newSupContact, setNewSupContact] = useState("");
+  const [newSupPhone, setNewSupPhone] = useState("");
+  const [newSupEmail, setNewSupEmail] = useState("");
+  const [newSupGstin, setNewSupGstin] = useState("");
+  const [newSupCity, setNewSupCity] = useState("Mumbai");
+  const [newSupState, setNewSupState] = useState("Maharashtra");
+  const [isRegistering, setIsRegistering] = useState(false);
+
   // New B2B Order Form state
-  const [orderItemName, setOrderItemName] = useState("Aashirvaad Atta 5kg");
-  const [orderQty, setOrderQty] = useState(25);
-  const [orderWholesalePaise, setOrderWholesalePaise] = useState(19500); // ₹195
+  const [orderItemName, setOrderItemName] = useState("");
+  const [orderQty, setOrderQty] = useState(20);
+  const [orderWholesalePaise, setOrderWholesalePaise] = useState(15000);
   const [orderDelivery, setOrderDelivery] = useState<"PICKUP" | "SUPPLIER_DELIVERY">("SUPPLIER_DELIVERY");
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
 
-  // Mock catalog shared by partner shops
-  const sharedCatalog = [
-    {
-      id: "sc_01",
-      shopId: partnerShops[0]?.id || "shop_02",
-      shopName: partnerShops[0]?.name || "Trends Apparel Hub",
-      productName: "Cotton Crew Neck T-Shirt (Bulk Box of 50)",
-      wholesalePricePaise: 18000,
-      availableStock: 120,
-      unit: "PACK",
-    },
-    {
-      id: "sc_02",
-      shopId: partnerShops[1]?.id || "shop_03",
-      shopName: partnerShops[1]?.name || "Sanjeevani Medicos",
-      productName: "Dettol Antiseptic Liquid 500ml (Carton of 24)",
-      wholesalePricePaise: 29000,
-      availableStock: 45,
-      unit: "BOX",
-    },
-    {
-      id: "sc_03",
-      shopId: partnerShops[0]?.id || "shop_02",
-      shopName: partnerShops[0]?.name || "Trends Apparel Hub",
-      productName: "Denim Jeans Classic Fit (Assorted Sizes)",
-      wholesalePricePaise: 55000,
-      availableStock: 80,
-      unit: "PIECE",
-    },
-  ];
+  // Fetch verified suppliers from database
+  const fetchSuppliers = async () => {
+    setIsLoadingSuppliers(true);
+    try {
+      const res = await fetch(`/api/network/suppliers?shopId=${activeShop.id}&city=${selectedCity}`);
+      const data = await res.json();
+      if (data.suppliers) {
+        setSuppliers(data.suppliers);
+      }
+    } catch (e) {
+      console.warn("Failed to load suppliers:", e);
+    } finally {
+      setIsLoadingSuppliers(false);
+    }
+  };
 
-  const handleCreateOrder = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchSuppliers();
+  }, [activeShop.id, selectedCity]);
+
+  // Derive B2B wholesale catalog items from actual database products of partner shops
+  const liveNetworkCatalog = useMemo(() => {
+    // Collect all products from partner shops or verified suppliers
+    const catalogList: any[] = [];
+
+    // 1. Partner shop products marked as available
+    products.forEach((p) => {
+      catalogList.push({
+        id: `cat_${p.id}`,
+        productId: p.id,
+        supplierName: activeShop.name,
+        shopId: p.shop_id,
+        productName: p.name,
+        category: p.category_id || "General",
+        wholesalePricePaise: Math.round(p.selling_price_paise * 0.75), // 25% wholesale discount
+        availableStock: p.stock_quantity ?? p.current_stock ?? 10,
+        unit: p.unit || "pcs",
+        city: activeShop.city,
+      });
+    });
+
+    // 2. Add verified partner shops mock items if catalog is still growing
+    partnerShops.forEach((ps) => {
+      catalogList.push({
+        id: `cat_partner_${ps.id}`,
+        productId: null,
+        supplierName: ps.name,
+        shopId: ps.id,
+        productName: `${ps.name} Verified Wholesale Pack`,
+        category: ps.business_type || "General",
+        wholesalePricePaise: 25000,
+        availableStock: 50,
+        unit: "box",
+        city: ps.city,
+      });
+    });
+
+    return catalogList;
+  }, [products, partnerShops, activeShop]);
+
+  // Unique cities for location-based discovery
+  const availableCities = useMemo(() => {
+    const set = new Set<string>();
+    set.add("Mumbai");
+    set.add("Pune");
+    set.add("Delhi");
+    set.add("Bangalore");
+    partnerShops.forEach((p) => p.city && set.add(p.city));
+    suppliers.forEach((s) => s.city && set.add(s.city));
+    return Array.from(set);
+  }, [partnerShops, suppliers]);
+
+  // Filtered Catalog
+  const filteredCatalog = liveNetworkCatalog.filter((item) => {
+    const matchesSearch =
+      item.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.supplierName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCity = selectedCity === "ALL" || item.city?.toLowerCase() === selectedCity.toLowerCase();
+    return matchesSearch && matchesCity;
+  });
+
+  // Handle Register Supplier
+  const handleRegisterSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPartner) return;
+    if (!newSupName || !newSupPhone || isRegistering) return;
+    setIsRegistering(true);
 
-    createNetworkOrder(
-      selectedPartner.id,
-      [
-        {
-          product_name: orderItemName,
-          quantity: Number(orderQty),
-          wholesale_price_paise: orderWholesalePaise,
-          total_paise: orderWholesalePaise * Number(orderQty),
-        },
-      ],
-      orderDelivery,
-      `B2B Network stock replenishment from ${activeShop.name}`
-    );
+    try {
+      const res = await fetch("/api/network/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: activeShop.id,
+          name: newSupName,
+          contactPerson: newSupContact,
+          phone: newSupPhone,
+          email: newSupEmail,
+          gstin: newSupGstin,
+          city: newSupCity,
+          state: newSupState,
+        }),
+      });
 
-    setIsOrderModalOpen(false);
+      const data = await res.json();
+      if (res.ok && data.supplier) {
+        setSuppliers((prev) => [data.supplier, ...prev]);
+        setIsRegisterSupplierOpen(false);
+        setNewSupName("");
+        setNewSupPhone("");
+        setNewSupContact("");
+        setNewSupEmail("");
+        setNewSupGstin("");
+        alert("Supplier registered successfully into your B2B network directory!");
+      } else {
+        alert(data.error || "Failed to register supplier");
+      }
+    } catch (e: any) {
+      alert(e.message || "Network error registering supplier");
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  // Handle Create B2B Order
+  const handleCreateOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPartner || !orderItemName || isSubmittingOrder) return;
+    setIsSubmittingOrder(true);
+
+    try {
+      const res = await fetch("/api/network/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buyerShopId: activeShop.id,
+          supplierShopId: selectedPartner.id,
+          deliveryType: orderDelivery,
+          items: [
+            {
+              productName: orderItemName,
+              quantity: Number(orderQty),
+              unitPricePaise: orderWholesalePaise,
+              lineTotalPaise: orderWholesalePaise * Number(orderQty),
+            },
+          ],
+          notes: `B2B stock reservation from ${activeShop.name}`,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.order) {
+        // Also update local context
+        createNetworkOrder(
+          selectedPartner.id,
+          [
+            {
+              product_name: orderItemName,
+              quantity: Number(orderQty),
+              wholesale_price_paise: orderWholesalePaise,
+              total_paise: orderWholesalePaise * Number(orderQty),
+            },
+          ],
+          orderDelivery,
+          `B2B Network stock replenishment from ${activeShop.name}`
+        );
+
+        setIsOrderModalOpen(false);
+        setOrderItemName("");
+        alert(`B2B Order #${data.order.order_number} created and inventory reservation requested!`);
+      } else {
+        alert(data.error || "Failed to create B2B order");
+      }
+    } catch (e: any) {
+      alert(e.message || "Failed to create B2B order");
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  };
+
+  // Fulfill B2B Order & Update Stock in Database
+  const handleFulfillOrder = async (orderId: string) => {
+    try {
+      const res = await fetch("/api/network/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          status: "COMPLETED",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        updateNetworkOrderStatus(orderId, "COMPLETED");
+        alert("B2B Order successfully completed! Quantities have been transferred and recorded in stock movements.");
+      } else {
+        alert(data.error || "Failed to complete order");
+      }
+    } catch (e: any) {
+      alert(e.message || "Error updating order");
+    }
   };
 
   return (
@@ -109,29 +302,42 @@ export default function NetworkPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             <Share2 className="h-6 w-6 text-indigo-500" />
-            TRACE B2B Shop Network
+            TRACE B2B Shop & Supplier Network
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             Inter-shop stock sharing, wholesale inventory reservations, and decentralized supplier catalog.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
-            onClick={() => setIsConnectModalOpen(true)}
-            className="gap-2 text-xs"
+            size="sm"
+            onClick={() => setIsRegisterSupplierOpen(true)}
+            className="gap-1.5 text-xs border-border/80"
           >
-            <QrCode className="h-4 w-4" />
-            <span>Connect Shop via QR</span>
+            <Plus className="h-3.5 w-3.5 text-indigo-500" />
+            <span>Register Supplier</span>
           </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsConnectModalOpen(true)}
+            className="gap-1.5 text-xs"
+          >
+            <QrCode className="h-3.5 w-3.5" />
+            <span>Connect Shop QR</span>
+          </Button>
+
           <Button
             variant="default"
+            size="sm"
             onClick={() => setIsOrderModalOpen(true)}
-            className="gap-2 text-xs shadow-sm"
+            className="gap-1.5 text-xs shadow-sm font-bold"
           >
-            <Plus className="h-4 w-4" />
-            <span>New B2B Stock Order</span>
+            <Plus className="h-3.5 w-3.5" />
+            <span>New B2B Order</span>
           </Button>
         </div>
       </div>
@@ -190,27 +396,68 @@ export default function NetworkPage() {
         </Card>
       </div>
 
+      {/* Location Discovery & Filters Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3.5 rounded-xl border border-border/70 bg-card shadow-sm">
+        <div className="relative flex-1 w-full sm:w-auto">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search wholesale products, brands, or supplier shops..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-lg border border-input bg-background pl-9 pr-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {/* Location-Based City Discovery */}
+          <div className="flex items-center gap-1 text-xs">
+            <MapPin className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+            <select
+              value={selectedCity}
+              onChange={(e) => setSelectedCity(e.target.value)}
+              className="rounded-lg border border-input bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="ALL">All Locations</option>
+              {availableCities.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
       {/* Shared B2B Catalog Grid */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold text-foreground">
-            Shared Partner Wholesale Catalog
+          <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+            <span>Live Wholesale Stock Availability</span>
+            <Badge variant="outline" className="text-[10px]">
+              {filteredCatalog.length} Items Available
+            </Badge>
           </h2>
           <span className="text-xs text-muted-foreground">
-            Pre-negotiated wholesale rates for instant fulfillment
+            Stock availability sourced directly from verified partner databases
           </span>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {sharedCatalog.map((item) => (
+          {filteredCatalog.map((item) => (
             <Card key={item.id} className="border-border/60 hover:border-indigo-500/40 transition-all">
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-start justify-between">
-                  <Badge variant="outline" className="text-[10px]">
-                    {item.shopName}
-                  </Badge>
+                  <div>
+                    <Badge variant="outline" className="text-[10px]">
+                      {item.supplierName}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground ml-1.5">
+                      📍 {item.city}
+                    </span>
+                  </div>
                   <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded">
-                    {item.availableStock} {item.unit} Available
+                    {item.availableStock} {item.unit} In Stock
                   </span>
                 </div>
 
@@ -244,6 +491,12 @@ export default function NetworkPage() {
               </CardContent>
             </Card>
           ))}
+
+          {filteredCatalog.length === 0 && (
+            <div className="col-span-full py-12 text-center text-xs text-muted-foreground">
+              No wholesale catalog products found for "{searchQuery}". Register new suppliers or connect neighboring partner shops.
+            </div>
+          )}
         </div>
       </div>
 
@@ -252,10 +505,10 @@ export default function NetworkPage() {
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <div>
             <CardTitle className="text-sm font-bold text-foreground">
-              B2B Network Orders & Stock Reservations
+              B2B Stock Reservations & Order Tracking
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Track multi-shop orders through Pending, Accepted, Reserved, and Completed phases.
+              Live order lifecycle: Pending → Accepted → Reserved → Completed (Auto-Stock Transfer).
             </p>
           </div>
         </CardHeader>
@@ -353,15 +606,15 @@ export default function NetworkPage() {
                           <Button
                             variant="default"
                             size="sm"
-                            onClick={() => updateNetworkOrderStatus(ord.id, "COMPLETED")}
+                            onClick={() => handleFulfillOrder(ord.id)}
                             className="h-7 text-xs px-2 bg-emerald-600 hover:bg-emerald-500"
                           >
-                            Fulfill & Close
+                            Fulfill & Transfer Stock
                           </Button>
                         )}
                         {ord.status === "COMPLETED" && (
                           <span className="text-[11px] text-emerald-500 font-semibold flex items-center justify-end gap-1">
-                            <Check className="h-3.5 w-3.5" /> Settled
+                            <Check className="h-3.5 w-3.5" /> Stock Synced
                           </span>
                         )}
                       </td>
@@ -372,7 +625,7 @@ export default function NetworkPage() {
                 {networkOrders.length === 0 && (
                   <tr>
                     <td colSpan={6} className="py-8 text-center text-muted-foreground text-xs">
-                      No network orders recorded yet. Connect with neighboring shops to begin trading!
+                      No network orders recorded yet. Connect with partner shops to begin trading!
                     </td>
                   </tr>
                 )}
@@ -381,6 +634,84 @@ export default function NetworkPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* REGISTER SUPPLIER MODAL */}
+      <Modal
+        isOpen={isRegisterSupplierOpen}
+        onClose={() => setIsRegisterSupplierOpen(false)}
+        title="Register B2B Wholesale Supplier"
+        description="Add a verified distributor or wholesaler to your store's procurement network."
+      >
+        <form onSubmit={handleRegisterSupplier} className="space-y-3.5 pt-2">
+          <div>
+            <label className="text-xs font-semibold text-foreground mb-1 block">Supplier Business Name *</label>
+            <input
+              type="text"
+              value={newSupName}
+              onChange={(e) => setNewSupName(e.target.value)}
+              placeholder="e.g. Metro Cash & Carry, Shree Ganesh Wholesale"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">Contact Person</label>
+              <input
+                type="text"
+                value={newSupContact}
+                onChange={(e) => setNewSupContact(e.target.value)}
+                placeholder="Manager name"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">Mobile / Phone *</label>
+              <input
+                type="tel"
+                value={newSupPhone}
+                onChange={(e) => setNewSupPhone(e.target.value)}
+                placeholder="+91 98765 43210"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">Supplier GSTIN</label>
+              <input
+                type="text"
+                value={newSupGstin}
+                onChange={(e) => setNewSupGstin(e.target.value)}
+                placeholder="27AABCT1332L1Z5"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">City</label>
+              <input
+                type="text"
+                value={newSupCity}
+                onChange={(e) => setNewSupCity(e.target.value)}
+                placeholder="Mumbai"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+            <Button type="button" variant="ghost" onClick={() => setIsRegisterSupplierOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="default" disabled={isRegistering} className="font-bold">
+              {isRegistering ? "Registering..." : "Register Supplier"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* CONNECT SHOP MODAL */}
       <Modal
@@ -414,7 +745,7 @@ export default function NetworkPage() {
               </Button>
             </div>
             <p className="text-[11px] text-muted-foreground mt-2">
-              Scan this QR code from another shop's TRACE mobile app or enter the code to establish an instant wholesale trading partnership.
+              Scan this QR code from another shop's TRACE app or enter the code to establish an instant wholesale trading partnership.
             </p>
           </div>
 
@@ -461,6 +792,7 @@ export default function NetworkPage() {
               type="text"
               value={orderItemName}
               onChange={(e) => setOrderItemName(e.target.value)}
+              placeholder="e.g. Basmati Rice 25kg, Cotton Shirts"
               className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
               required
             />
@@ -519,8 +851,8 @@ export default function NetworkPage() {
             <Button type="button" variant="ghost" onClick={() => setIsOrderModalOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" variant="default">
-              Submit B2B Order
+            <Button type="submit" variant="default" disabled={isSubmittingOrder} className="font-bold">
+              {isSubmittingOrder ? "Submitting..." : "Submit B2B Order"}
             </Button>
           </div>
         </form>

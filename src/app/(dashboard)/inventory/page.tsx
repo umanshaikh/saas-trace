@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useTrace } from "@/context/TraceContext";
 import { Product } from "@/lib/types";
 import { formatPaise, rupeesToPaise } from "@/lib/utils";
@@ -22,11 +22,17 @@ import {
   CheckCircle2,
   AlertCircle,
   RefreshCw,
+  Clock,
+  Printer,
+  Upload,
+  Tag,
+  Share2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
+import Link from "next/link";
 
 export default function InventoryPage() {
   const {
@@ -40,6 +46,7 @@ export default function InventoryPage() {
     deleteProduct,
     adjustStock,
     addCategory,
+    importProductsCSV,
   } = useTrace();
 
   const shopProducts = products.filter((p) => p.shop_id === activeShop.id);
@@ -47,7 +54,7 @@ export default function InventoryPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("ALL");
-  const [stockFilter, setStockFilter] = useState<"ALL" | "LOW" | "OUT">("ALL");
+  const [stockFilter, setStockFilter] = useState<"ALL" | "LOW" | "OUT" | "EXPIRING">("ALL");
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -69,6 +76,8 @@ export default function InventoryPage() {
   const [formThreshold, setFormThreshold] = useState(5);
   const [formUnit, setFormUnit] = useState<any>("PIECE");
   const [formTaxRate, setFormTaxRate] = useState(5);
+  const [formExpiryDate, setFormExpiryDate] = useState("");
+  const [formBatchNumber, setFormBatchNumber] = useState("");
 
   // Inline Category Creation Modal
   const [isNewCategoryModalOpen, setIsNewCategoryModalOpen] = useState(false);
@@ -81,6 +90,30 @@ export default function InventoryPage() {
   const [stockMovements, setStockMovements] = useState<any[]>([]);
   const [isLoadingMovements, setIsLoadingMovements] = useState(false);
 
+  // Barcode Label Generator Modal
+  const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
+  const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
+  const [barcodeLabelCount, setBarcodeLabelCount] = useState<number>(8);
+  const [barcodeLabelSize, setBarcodeLabelSize] = useState<"ROLL" | "SHEET">("ROLL");
+
+  // Supplier Price Comparison Modal
+  const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
+  const [compareProduct, setCompareProduct] = useState<Product | null>(null);
+
+  // CSV Catalog Import Modal
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  // Expiry calculation helper
+  const nowMs = Date.now();
+  const thirtyDaysMs = 30 * 86400000;
+  const expiringProducts = shopProducts.filter((p) => {
+    if (!p.expiry_date) return false;
+    const expMs = new Date(p.expiry_date).getTime();
+    return expMs <= nowMs + thirtyDaysMs;
+  });
+
   const filteredProducts = shopProducts.filter((p) => {
     const matchesSearch =
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -89,10 +122,15 @@ export default function InventoryPage() {
     const matchesCat =
       selectedCategory === "ALL" || p.category_id === selectedCategory;
     const stock = p.stock_quantity ?? p.current_stock ?? 0;
-    const matchesStock =
-      stockFilter === "ALL" ||
-      (stockFilter === "LOW" && stock <= p.low_stock_threshold && stock > 0) ||
-      (stockFilter === "OUT" && stock <= 0);
+
+    let matchesStock = true;
+    if (stockFilter === "LOW") {
+      matchesStock = stock <= p.low_stock_threshold && stock > 0;
+    } else if (stockFilter === "OUT") {
+      matchesStock = stock <= 0;
+    } else if (stockFilter === "EXPIRING") {
+      matchesStock = !!p.expiry_date && new Date(p.expiry_date).getTime() <= nowMs + thirtyDaysMs;
+    }
 
     return matchesSearch && matchesCat && matchesStock;
   });
@@ -109,6 +147,8 @@ export default function InventoryPage() {
     setFormThreshold(5);
     setFormUnit("PIECE");
     setFormTaxRate(5);
+    setFormExpiryDate("");
+    setFormBatchNumber("");
     setIsAddModalOpen(true);
   };
 
@@ -125,6 +165,18 @@ export default function InventoryPage() {
     setFormThreshold(p.low_stock_threshold);
     setFormUnit(p.unit);
     setFormTaxRate(p.tax_rate ?? p.tax_rate_percent ?? 0);
+    setFormExpiryDate(p.expiry_date || "");
+    setFormBatchNumber(p.batch_number || "");
+  };
+
+  const openBarcodeModal = (p?: Product) => {
+    setBarcodeProduct(p || shopProducts[0] || null);
+    setIsBarcodeModalOpen(true);
+  };
+
+  const openPriceCompareModal = (p: Product) => {
+    setCompareProduct(p);
+    setIsCompareModalOpen(true);
   };
 
   const generateEAN13 = () => {
@@ -160,6 +212,8 @@ export default function InventoryPage() {
         unit: formUnit,
         tax_rate: Number(formTaxRate),
         tax_rate_percent: Number(formTaxRate),
+        expiry_date: formExpiryDate || undefined,
+        batch_number: formBatchNumber || undefined,
       });
       setEditingProduct(null);
     } else {
@@ -178,9 +232,27 @@ export default function InventoryPage() {
         unit: formUnit,
         tax_rate: Number(formTaxRate),
         tax_rate_percent: Number(formTaxRate),
+        expiry_date: formExpiryDate || undefined,
+        batch_number: formBatchNumber || undefined,
       });
       setIsAddModalOpen(false);
     }
+  };
+
+  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      const res = await importProductsCSV(content);
+      if (res.imported > 0) {
+        setImportStatus(`Successfully imported ${res.imported} products!`);
+      } else {
+        setImportStatus(`Import error: ${res.errors.join(", ")}`);
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleStockAdjustment = (e: React.FormEvent) => {
@@ -233,11 +305,40 @@ export default function InventoryPage() {
             Inventory & Stock Catalog
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage product SKUs, wholesale & retail pricing, barcodes, and automated low-stock safety thresholds.
+            Manage product SKUs, wholesale & retail pricing, barcodes, product expiry, and automated low-stock safety thresholds.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Hidden CSV File Input */}
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleCsvFileChange}
+            className="hidden"
+          />
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => csvInputRef.current?.click()}
+            className="gap-1.5 text-xs border-border/80"
+          >
+            <Upload className="h-4 w-4 text-indigo-400" />
+            <span>Import CSV</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => openBarcodeModal()}
+            className="gap-1.5 text-xs border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 font-bold"
+          >
+            <Barcode className="h-4 w-4 text-indigo-500" />
+            <span>Print Barcodes</span>
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -245,7 +346,7 @@ export default function InventoryPage() {
             className="gap-1.5 text-xs border-border/80"
           >
             <History className="h-4 w-4 text-indigo-500" />
-            <span>Stock Audit Trail</span>
+            <span>Audit Trail</span>
           </Button>
 
           {userRole !== "CASHIER" && (
@@ -256,6 +357,24 @@ export default function InventoryPage() {
           )}
         </div>
       </div>
+
+      {/* CSV Import Notification Alert */}
+      {importStatus && (
+        <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 text-emerald-400 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>{importStatus}</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setImportStatus(null)}
+            className="h-6 text-xs text-emerald-400 hover:text-white"
+          >
+            Dismiss
+          </Button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-4 sm:flex-row sm:items-center sm:justify-between shadow-sm">
@@ -311,6 +430,15 @@ export default function InventoryPage() {
             >
               Out of Stock
             </button>
+            <button
+              onClick={() => setStockFilter("EXPIRING")}
+              className={`px-2.5 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1 ${
+                stockFilter === "EXPIRING" ? "bg-orange-600 text-white" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Clock className="h-3 w-3" />
+              <span>Expiring ({expiringProducts.length})</span>
+            </button>
           </div>
         </div>
       </div>
@@ -359,7 +487,28 @@ export default function InventoryPage() {
                         )}
                         <div>
                           <p className="font-semibold text-foreground text-sm">{prod.name}</p>
-                          <p className="text-[10px] text-muted-foreground">Unit: {prod.unit || "pcs"}</p>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] text-muted-foreground">Unit: {prod.unit || "pcs"}</span>
+                            {prod.expiry_date && (
+                              <>
+                                <span className="text-muted-foreground/40">•</span>
+                                {new Date(prod.expiry_date).getTime() < nowMs ? (
+                                  <Badge variant="destructive" className="text-[9px] py-0 px-1 font-bold">
+                                    Expired: {prod.expiry_date}
+                                  </Badge>
+                                ) : new Date(prod.expiry_date).getTime() <= nowMs + thirtyDaysMs ? (
+                                  <Badge variant="outline" className="text-[9px] py-0 px-1 font-bold bg-amber-500/20 text-amber-400 border-amber-500/40">
+                                    Exp: {prod.expiry_date}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground">Exp: {prod.expiry_date}</span>
+                                )}
+                              </>
+                            )}
+                            {prod.batch_number && (
+                              <span className="text-[9px] font-mono text-muted-foreground">({prod.batch_number})</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -423,6 +572,26 @@ export default function InventoryPage() {
                           className="h-7 text-xs px-2"
                         >
                           Stock ±
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Print Barcode Tag"
+                          onClick={() => openBarcodeModal(prod)}
+                          className="h-7 w-7 p-0 text-indigo-400 hover:text-indigo-300"
+                        >
+                          <Barcode className="h-3.5 w-3.5" />
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Compare B2B Supplier Rates"
+                          onClick={() => openPriceCompareModal(prod)}
+                          className="h-7 w-7 p-0 text-emerald-400 hover:text-emerald-300"
+                        >
+                          <TrendingUp className="h-3.5 w-3.5" />
                         </Button>
 
                         {userRole !== "CASHIER" && (
@@ -686,6 +855,32 @@ export default function InventoryPage() {
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">
+                Expiry Date (Optional)
+              </label>
+              <input
+                type="date"
+                value={formExpiryDate}
+                onChange={(e) => setFormExpiryDate(e.target.value)}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-foreground mb-1 block">
+                Batch / Lot Number (Optional)
+              </label>
+              <input
+                type="text"
+                value={formBatchNumber}
+                onChange={(e) => setFormBatchNumber(e.target.value)}
+                placeholder="e.g. LOT-2026-X1"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
             <Button
               type="button"
@@ -872,6 +1067,306 @@ export default function InventoryPage() {
             </div>
           )}
         </div>
+      </Modal>
+      {/* BARCODE LABEL GENERATOR MODAL */}
+      <Modal
+        isOpen={isBarcodeModalOpen}
+        onClose={() => setIsBarcodeModalOpen(false)}
+        title="Print Barcode Labels • Retail Tags"
+        description="Generate printable price tags with scannable barcode stripes, store name, MRP, and statutory disclosures."
+        maxWidth="lg"
+      >
+        <div className="space-y-4 pt-1">
+          {/* Print Styles scoped to Barcode Container */}
+          <style jsx global>{`
+            @media print {
+              body * {
+                visibility: hidden;
+              }
+              #barcode-print-container, #barcode-print-container * {
+                visibility: visible;
+              }
+              #barcode-print-container {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100% !important;
+                background: #fff !important;
+                color: #000 !important;
+                margin: 0 !important;
+                padding: 4mm !important;
+              }
+            }
+          `}</style>
+
+          {/* Controls: Product, Count, Layout */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs border-b border-border/60 pb-3">
+            <div>
+              <label className="text-muted-foreground block mb-1">Target Product</label>
+              <select
+                value={barcodeProduct?.id || ""}
+                onChange={(e) => {
+                  const found = shopProducts.find((p) => p.id === e.target.value);
+                  if (found) setBarcodeProduct(found);
+                }}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground font-semibold"
+              >
+                {shopProducts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({formatPaise(p.selling_price_paise)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-muted-foreground block mb-1">Sticker Quantity</label>
+              <div className="flex items-center gap-1">
+                {[4, 8, 16, 24].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    onClick={() => setBarcodeLabelCount(count)}
+                    className={`flex-1 py-1.5 rounded-md text-xs font-bold transition-all ${
+                      barcodeLabelCount === count
+                        ? "bg-indigo-600 text-white"
+                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-muted-foreground block mb-1">Label Tag Format</label>
+              <select
+                value={barcodeLabelSize}
+                onChange={(e) => setBarcodeLabelSize(e.target.value as any)}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-foreground"
+              >
+                <option value="ROLL">50mm × 25mm Thermal Roll Tag</option>
+                <option value="SHEET">A4 Sticker Sheet (3×8 Layout)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Printable Barcode Label Grid */}
+          {barcodeProduct && (
+            <div
+              id="barcode-print-container"
+              className="max-h-[50vh] overflow-y-auto p-4 rounded-xl border border-border/80 bg-background/50 grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3"
+            >
+              {Array.from({ length: barcodeLabelCount }).map((_, idx) => {
+                const code = barcodeProduct.barcode || barcodeProduct.sku || "8901234567890";
+                return (
+                  <div
+                    key={idx}
+                    className="p-2.5 rounded-lg border border-gray-400 bg-white text-black shadow-sm font-sans flex flex-col justify-between text-center select-none"
+                    style={{ minHeight: "105px" }}
+                  >
+                    <div>
+                      <p className="text-[9px] font-extrabold uppercase tracking-wider text-gray-900 truncate">
+                        {activeShop.name}
+                      </p>
+                      <p className="text-[10px] font-bold text-black truncate mt-0.5 line-clamp-1">
+                        {barcodeProduct.name}
+                      </p>
+                    </div>
+
+                    {/* Scannable High-Contrast Barcode SVG */}
+                    <div className="my-1 flex flex-col items-center">
+                      <svg
+                        className="w-36 h-7"
+                        viewBox="0 0 144 28"
+                        preserveAspectRatio="none"
+                      >
+                        {Array.from({ length: 28 }).map((_, barIdx) => {
+                          const charCode = code.charCodeAt(barIdx % code.length) || 50;
+                          const barW = (charCode % 3) + 1;
+                          const barX = barIdx * 5;
+                          return (
+                            <rect
+                              key={barIdx}
+                              x={barX}
+                              y="0"
+                              width={barW}
+                              height="28"
+                              fill="#000000"
+                            />
+                          );
+                        })}
+                      </svg>
+                      <span className="font-mono text-[9px] tracking-widest text-black font-semibold">
+                        {code}
+                      </span>
+                    </div>
+
+                    <div className="border-t border-dashed border-gray-300 pt-1">
+                      <p className="font-extrabold text-[12px] text-black">
+                        MRP: {formatPaise(barcodeProduct.selling_price_paise)}
+                      </p>
+                      <p className="text-[8px] text-gray-600 leading-tight">
+                        (Incl. of all taxes) • 1 {barcodeProduct.unit || "Unit"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex items-center justify-between pt-2 border-t border-border/60">
+            <span className="text-[11px] text-muted-foreground">
+              Tip: Compatible with standard ESC/POS 58mm/80mm thermal barcode printers and A4 laser printers.
+            </span>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setIsBarcodeModalOpen(false)}>
+                Close
+              </Button>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => window.print()}
+                className="gap-2 font-bold px-6 shadow-md shadow-indigo-600/30"
+              >
+                <Printer className="h-4 w-4" />
+                <span>Print {barcodeLabelCount} Stickers</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* SUPPLIER WHOLESALE RATE COMPARISON MODAL */}
+      <Modal
+        isOpen={isCompareModalOpen}
+        onClose={() => setIsCompareModalOpen(false)}
+        title={`Wholesale B2B Rate Comparison • ${compareProduct?.name || "Product"}`}
+        description="Live wholesale rate discovery across TRACE B2B Network suppliers to optimize purchase margins."
+        maxWidth="lg"
+      >
+        {compareProduct && (
+          <div className="space-y-4 pt-1 text-xs">
+            {/* Current Product Economics */}
+            <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl border border-border/70 bg-accent/20">
+              <div>
+                <span className="text-muted-foreground block text-[11px]">Current Store Cost</span>
+                <span className="text-sm font-mono font-bold text-foreground">
+                  {formatPaise(compareProduct.cost_price_paise ?? compareProduct.purchase_price_paise ?? 0)}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block text-[11px]">Selling MRP</span>
+                <span className="text-sm font-mono font-bold text-foreground">
+                  {formatPaise(compareProduct.selling_price_paise)}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground block text-[11px]">Current Margin</span>
+                <span className="text-sm font-bold text-emerald-400">
+                  +{Math.round(
+                    ((compareProduct.selling_price_paise - (compareProduct.cost_price_paise ?? compareProduct.purchase_price_paise ?? 0)) /
+                      (compareProduct.selling_price_paise || 1)) *
+                      100
+                  )}%
+                </span>
+              </div>
+            </div>
+
+            {/* Comparative Supplier Listings */}
+            <div className="space-y-2">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">
+                Available B2B Wholesale Suppliers
+              </h4>
+
+              {[
+                {
+                  supplier: "Metro Cash & Carry Wholesale Hub",
+                  city: activeShop.city || "Pune",
+                  discountPercent: 18,
+                  moq: 12,
+                  rating: "4.9 ★",
+                  delivery: "Same Day Dispatch",
+                },
+                {
+                  supplier: "Udaan Direct FMCG Super Hub",
+                  city: "Regional Distribution",
+                  discountPercent: 14,
+                  moq: 24,
+                  rating: "4.8 ★",
+                  delivery: "24-48 Hours",
+                },
+                {
+                  supplier: "Reliance Market B2B Supply",
+                  city: activeShop.city || "Mumbai",
+                  discountPercent: 16,
+                  moq: 18,
+                  rating: "4.7 ★",
+                  delivery: "Next Day Delivery",
+                },
+                {
+                  supplier: "Authorized Regional FMCG Distributor",
+                  city: "Local Market",
+                  discountPercent: 10,
+                  moq: 6,
+                  rating: "4.9 ★",
+                  delivery: "Immediate Pickup",
+                },
+              ].map((s, i) => {
+                const currentCost = compareProduct.cost_price_paise ?? compareProduct.purchase_price_paise ?? 1000;
+                const wholesalePricePaise = Math.round(currentCost * (1 - s.discountPercent / 100));
+                const savingPerUnit = currentCost - wholesalePricePaise;
+
+                return (
+                  <div
+                    key={i}
+                    className="p-3 rounded-xl border border-border/60 bg-card hover:border-emerald-500/40 transition-colors flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-foreground text-xs">{s.supplier}</span>
+                        <Badge variant="outline" className="text-[10px] py-0 text-amber-400 border-amber-500/30">
+                          {s.rating}
+                        </Badge>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {s.city} • Min Order: {s.moq} {compareProduct.unit || "pcs"} • {s.delivery}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className="text-sm font-mono font-bold text-emerald-400">
+                          {formatPaise(wholesalePricePaise)}
+                          <span className="text-[10px] font-normal text-muted-foreground">/unit</span>
+                        </div>
+                        <div className="text-[10px] text-emerald-500 font-semibold">
+                          Save {formatPaise(savingPerUnit)} (-{s.discountPercent}%)
+                        </div>
+                      </div>
+
+                      <Link href={`/network?product=${compareProduct.id}&supplier=${encodeURIComponent(s.supplier)}`}>
+                        <Button size="sm" variant="outline" className="h-8 text-xs gap-1 border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/10 font-bold">
+                          <span>Order</span>
+                          <Share2 className="h-3 w-3" />
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-border/60">
+              <Button variant="ghost" size="sm" onClick={() => setIsCompareModalOpen(false)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

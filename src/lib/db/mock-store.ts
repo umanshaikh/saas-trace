@@ -18,21 +18,22 @@ export const INITIAL_PLANS: SubscriptionPlan[] = [
   {
     id: 'starter',
     name: 'Starter Plan',
-    description: 'Essential billing, expanded inventory, customer ledger & standard business reports.',
+    description: 'Single-store essential billing, barcode scanning, inventory & customer khata ledger.',
     monthly_price_paise: 9900, // ₹99
     yearly_price_paise: 99900, // ₹999/yr
     max_products: 500,
-    max_team_members: 3,
+    max_team_members: 2,
     has_ai_assistant: false,
     has_network_access: false,
     has_paylater: true,
     has_advanced_reports: false,
+    has_multi_branch: false,
     is_active: true,
   },
   {
     id: 'pro',
-    name: 'Pro Atelier Plan',
-    description: 'TRACE AI multilingual assistant, PayLater Khata & advanced profit analytics.',
+    name: 'TRACE Pro',
+    description: 'TRACE AI multilingual voice assistant, B2B network access, PayLater khata & advanced reports.',
     monthly_price_paise: 19900, // ₹199
     yearly_price_paise: 199900, // ₹1,999/yr
     max_products: 2500,
@@ -41,20 +42,22 @@ export const INITIAL_PLANS: SubscriptionPlan[] = [
     has_network_access: true,
     has_paylater: true,
     has_advanced_reports: true,
+    has_multi_branch: false,
     is_active: true,
   },
   {
-    id: 'business',
-    name: 'Business Enterprise',
-    description: 'Full TRACE Network B2B collaboration, stock reservations, AutoPay & unlimited staff.',
-    monthly_price_paise: 39900, // ₹399
-    yearly_price_paise: 399900, // ₹3,999/yr
-    max_products: 10000,
-    max_team_members: 25,
+    id: 'enterprise',
+    name: 'Enterprise Plan',
+    description: 'Multi-branch chain synchronization, centralized inventory, unlimited staff & dedicated CA audit export.',
+    monthly_price_paise: 49900, // ₹499
+    yearly_price_paise: 499900, // ₹4,999/yr
+    max_products: 50000,
+    max_team_members: 100,
     has_ai_assistant: true,
     has_network_access: true,
     has_paylater: true,
     has_advanced_reports: true,
+    has_multi_branch: true,
     is_active: true,
   },
 ];

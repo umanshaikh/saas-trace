@@ -85,6 +85,8 @@ export interface Product {
   tax_rate?: number;
   hsn_code?: string;
   image_url?: string;
+  expiry_date?: string; // YYYY-MM-DD
+  batch_number?: string;
   is_shared_to_network?: boolean;
   network_selling_price_paise?: number;
   is_active: boolean;
@@ -144,6 +146,9 @@ export interface Invoice {
   status: 'COMPLETED' | 'CANCELLED' | 'AMENDED';
   created_at: string;
   items?: InvoiceItem[];
+  is_offline?: boolean;
+  sync_status?: 'SYNCED' | 'PENDING_OFFLINE' | 'CONFLICT';
+  offline_id?: string;
 }
 
 export interface StockMovement {
@@ -172,7 +177,7 @@ export interface Expense {
 }
 
 export interface SubscriptionPlan {
-  id: 'starter' | 'pro' | 'business';
+  id: 'starter' | 'pro' | 'business' | 'enterprise';
   name: string;
   description: string;
   monthly_price_paise: number;
@@ -186,6 +191,7 @@ export interface SubscriptionPlan {
   has_shop_network?: boolean;
   has_paylater: boolean;
   has_advanced_reports: boolean;
+  has_multi_branch?: boolean;
   is_active: boolean;
 }
 

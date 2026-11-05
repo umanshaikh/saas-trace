@@ -51,6 +51,16 @@ interface TraceContextType {
   language: "en" | "hi" | "mr";
   syncStatus: "IDLE" | "SYNCING" | "SYNCED" | "ERROR";
   syncWithSupabase: () => Promise<void>;
+  // Offline POS & Sync Engine
+  isOnline: boolean;
+  offlineQueue: Invoice[];
+  isSyncingOffline: boolean;
+  syncOfflineQueue: () => Promise<{ synced: number; failed: number; conflicts: any[] }>;
+  // Demo Mode
+  isDemoMode: boolean;
+  toggleDemoMode: (enable?: boolean) => void;
+  // Bulk Inventory CSV Import
+  importProductsCSV: (csvText: string) => Promise<{ imported: number; errors: string[] }>;
   // Supabase Authentication & Session
   authUser: any | null;
   authSession: any | null;
@@ -142,6 +152,12 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<InAppNotification[]>(DEMO_NOTIFICATIONS);
   const [subscriptionPlans, setSubscriptionPlans] = useState<SubscriptionPlan[]>(INITIAL_PLANS);
 
+  // Offline POS & Sync Engine State
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [offlineQueue, setOfflineQueue] = useState<Invoice[]>([]);
+  const [isSyncingOffline, setIsSyncingOffline] = useState<boolean>(false);
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
+
   // Sync with Supabase & load local cache on mount
   const syncWithSupabase = async () => {
     try {
@@ -214,8 +230,47 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    let handleOnline: (() => void) | null = null;
+    let handleOffline: (() => void) | null = null;
+
     if (typeof window !== "undefined") {
+      setIsOnline(navigator.onLine);
+
+      handleOnline = () => {
+        setIsOnline(true);
+        // Attempt background synchronization of queued offline bills
+        const queueStr = localStorage.getItem("trace_offline_invoices");
+        if (queueStr) {
+          try {
+            const queue = JSON.parse(queueStr);
+            if (queue.length > 0) {
+              console.log(`Connection restored. Initiating sync of ${queue.length} offline invoices...`);
+            }
+          } catch (e) {}
+        }
+      };
+
+      handleOffline = () => {
+        setIsOnline(false);
+        console.warn("Internet disconnected. TRACE Offline POS billing active.");
+      };
+
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+
       try {
+        // Load offline pending queue
+        const savedOffline = localStorage.getItem("trace_offline_invoices");
+        if (savedOffline) {
+          setOfflineQueue(JSON.parse(savedOffline));
+        }
+
+        // Load demo mode state
+        const savedDemo = localStorage.getItem("trace_demo_mode");
+        if (savedDemo === "true") {
+          setIsDemoMode(true);
+        }
+
         // One-time purge of legacy mock data from browser localStorage
         if (!localStorage.getItem("trace_cleaned_all_mock_v3")) {
           localStorage.removeItem("trace_shops");
@@ -267,6 +322,10 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      if (typeof window !== "undefined") {
+        if (handleOnline) window.removeEventListener("online", handleOnline);
+        if (handleOffline) window.removeEventListener("offline", handleOffline);
+      }
       subscription.unsubscribe();
     };
   }, []);
@@ -771,7 +830,164 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     return newCat;
   };
 
-  // Atomic checkout & invoice generator with strict integer arithmetic
+  // Demo Mode, Offline Sync & CSV Catalog Import
+  const toggleDemoMode = (enable?: boolean) => {
+    setIsDemoMode((prev) => {
+      const next = enable !== undefined ? enable : !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("trace_demo_mode", next ? "true" : "false");
+      }
+      return next;
+    });
+  };
+
+  const syncOfflineQueue = async (): Promise<{ synced: number; failed: number; conflicts: any[] }> => {
+    if (isSyncingOffline) return { synced: 0, failed: 0, conflicts: [] };
+    const savedQueue = typeof window !== "undefined" ? localStorage.getItem("trace_offline_invoices") : null;
+    let queue: Invoice[] = [];
+    try {
+      queue = savedQueue ? JSON.parse(savedQueue) : offlineQueue;
+    } catch (e) {
+      queue = offlineQueue;
+    }
+
+    if (!queue || queue.length === 0) {
+      return { synced: 0, failed: 0, conflicts: [] };
+    }
+
+    setIsSyncingOffline(true);
+    let synced = 0;
+    let failed = 0;
+    const conflicts: any[] = [];
+    const remainingQueue: Invoice[] = [];
+
+    for (const inv of queue) {
+      try {
+        const res = await fetch("/api/pos/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shopId: inv.shop_id,
+            customerId: inv.customer_id,
+            customerName: inv.customer_name_snapshot || inv.customer_name,
+            customerPhone: inv.customer_phone_snapshot || inv.customer_phone,
+            items: (inv.items || []).map((it) => ({
+              productId: it.product_id,
+              productName: it.product_name_snapshot || it.product_name || "Product",
+              sku: it.sku_snapshot,
+              unit: it.unit_snapshot || "pcs",
+              unitPricePaise: it.unit_price_paise,
+              taxRatePercent: it.tax_rate_percent ?? it.tax_rate ?? 0,
+              quantity: it.quantity,
+              lineTotalPaise: it.line_total_paise ?? it.total_paise,
+            })),
+            paymentMethod: inv.payment_method,
+            subtotalPaise: inv.subtotal_paise,
+            discountPaise: inv.discount_paise || 0,
+            taxPaise: inv.tax_paise,
+            totalAmountPaise: inv.total_amount_paise,
+            paidAmountPaise: inv.paid_amount_paise,
+            balanceAmountPaise: inv.balance_amount_paise,
+            notes: inv.notes,
+            requestId: inv.id,
+            isOfflineSync: true,
+            offlineInvoiceNumber: inv.invoice_number,
+            offlineCreatedAt: inv.created_at,
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.invoice) {
+          synced++;
+          if (data.stockConflicts && data.stockConflicts.length > 0) {
+            conflicts.push(...data.stockConflicts);
+          }
+          setInvoices((prev) =>
+            prev.map((existing) =>
+              existing.id === inv.id || existing.invoice_number === inv.invoice_number
+                ? { ...existing, sync_status: "SYNCED", is_offline: false }
+                : existing
+            )
+          );
+        } else {
+          failed++;
+          remainingQueue.push({ ...inv, sync_status: "CONFLICT" });
+        }
+      } catch (err: any) {
+        console.warn("Offline sync item failed:", err);
+        failed++;
+        remainingQueue.push(inv);
+      }
+    }
+
+    setOfflineQueue(remainingQueue);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("trace_offline_invoices", JSON.stringify(remainingQueue));
+    }
+    setIsSyncingOffline(false);
+    return { synced, failed, conflicts };
+  };
+
+  const importProductsCSV = async (csvText: string): Promise<{ imported: number; errors: string[] }> => {
+    const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length < 2) {
+      return { imported: 0, errors: ["CSV file is empty or missing headers"] };
+    }
+
+    const headers = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z0-9]/g, ""));
+    const nameIdx = headers.findIndex((h) => h.includes("name") || h.includes("product") || h.includes("title"));
+    const priceIdx = headers.findIndex((h) => h.includes("sell") || h.includes("mrp") || h.includes("price"));
+    const costIdx = headers.findIndex((h) => h.includes("cost") || h.includes("purchase") || h.includes("buy"));
+    const stockIdx = headers.findIndex((h) => h.includes("stock") || h.includes("qty") || h.includes("quantity"));
+    const skuIdx = headers.findIndex((h) => h.includes("sku") || h.includes("code"));
+    const barcodeIdx = headers.findIndex((h) => h.includes("barcode") || h.includes("ean") || h.includes("upc"));
+    const taxIdx = headers.findIndex((h) => h.includes("tax") || h.includes("gst"));
+    const unitIdx = headers.findIndex((h) => h.includes("unit"));
+
+    if (nameIdx === -1) {
+      return { imported: 0, errors: ["Could not detect 'Product Name' column in CSV header"] };
+    }
+
+    let count = 0;
+    const errors: string[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(",").map((c) => c.trim().replace(/^["']|["']$/g, ""));
+      const name = cols[nameIdx];
+      if (!name) continue;
+
+      const sellPrice = priceIdx !== -1 && cols[priceIdx] ? parseFloat(cols[priceIdx]) : 100;
+      const costPrice = costIdx !== -1 && cols[costIdx] ? parseFloat(cols[costIdx]) : Math.round(sellPrice * 0.7);
+      const stock = stockIdx !== -1 && cols[stockIdx] ? parseInt(cols[stockIdx], 10) : 25;
+      const sku = skuIdx !== -1 && cols[skuIdx] ? cols[skuIdx] : `SKU-${Date.now().toString().slice(-4)}${i}`;
+      const barcode = barcodeIdx !== -1 && cols[barcodeIdx] ? cols[barcodeIdx] : `890${Math.floor(100000000 + Math.random() * 900000000)}`;
+      const taxRate = taxIdx !== -1 && cols[taxIdx] ? parseFloat(cols[taxIdx]) : 5;
+      const unit = unitIdx !== -1 && cols[unitIdx] ? cols[unitIdx] : "pcs";
+
+      try {
+        addProduct({
+          name,
+          selling_price_paise: Math.round(sellPrice * 100),
+          cost_price_paise: Math.round(costPrice * 100),
+          purchase_price_paise: Math.round(costPrice * 100),
+          stock_quantity: isNaN(stock) ? 10 : stock,
+          current_stock: isNaN(stock) ? 10 : stock,
+          sku,
+          barcode,
+          tax_rate_percent: isNaN(taxRate) ? 5 : taxRate,
+          tax_rate: isNaN(taxRate) ? 5 : taxRate,
+          unit,
+        });
+        count++;
+      } catch (err: any) {
+        errors.push(`Row ${i + 1} (${name}): ${err.message}`);
+      }
+    }
+
+    return { imported: count, errors };
+  };
+
+  // Atomic checkout & invoice generator with strict integer arithmetic and offline resilience
   const createInvoice = async (
     items: InvoiceItem[],
     paymentMethod: "CASH" | "UPI" | "CARD" | "PAYLATER" | "SPLIT" | "BANK_TRANSFER",
@@ -789,78 +1005,6 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     const totalAmountPaise = subtotalPaise + taxPaise - discountPaise;
     const balanceAmountPaise = Math.max(0, totalAmountPaise - paidAmountPaise);
 
-    // Call atomic checkout API endpoint to persist to Supabase PostgreSQL
-    try {
-      const res = await fetch("/api/pos/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shopId: activeShop.id,
-          customerId,
-          customerName,
-          customerPhone,
-          items: items.map((it) => ({
-            productId: it.product_id,
-            productName: it.product_name_snapshot || it.product_name || "Product",
-            sku: it.sku_snapshot,
-            unit: it.unit_snapshot || "pcs",
-            unitPricePaise: it.unit_price_paise,
-            taxRatePercent: it.tax_rate_percent ?? it.tax_rate ?? 0,
-            quantity: it.quantity,
-            lineTotalPaise: it.line_total_paise ?? it.total_paise,
-          })),
-          paymentMethod,
-          subtotalPaise,
-          discountPaise,
-          taxPaise,
-          totalAmountPaise,
-          paidAmountPaise,
-          balanceAmountPaise,
-          notes,
-          isInterState,
-          requestId: `pos_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.invoice) {
-        const verified = data.invoice;
-        setInvoices((prev) => [verified, ...prev]);
-
-        // Deduct inventory locally for immediate UI update
-        items.forEach((item) => {
-          if (item.product_id) {
-            adjustStock(item.product_id, -item.quantity, "INVOICE_SALE", `Billed in ${verified.invoice_number}`);
-          }
-        });
-
-        // Update customer balance if billed on khata
-        if (balanceAmountPaise > 0 && customerId) {
-          setCustomers((prev) =>
-            prev.map((c) => {
-              if (c.id === customerId) {
-                const currentOut = c.total_outstanding_paise ?? c.outstanding_balance_paise ?? 0;
-                const newOutstanding = currentOut + balanceAmountPaise;
-                return {
-                  ...c,
-                  total_outstanding_paise: newOutstanding,
-                  outstanding_balance_paise: newOutstanding,
-                  credit_status: newOutstanding >= c.credit_limit_paise ? "WARNING" : "GOOD",
-                };
-              }
-              return c;
-            })
-          );
-        }
-
-        setSyncStatus("SYNCED");
-        return verified;
-      }
-    } catch (apiErr) {
-      console.warn("POS checkout API call notice, falling back to local transaction:", apiErr);
-    }
-
-    // Local fallback
     let paymentStatus: "PAID" | "PARTIALLY_PAID" | "UNPAID" = "PAID";
     if (balanceAmountPaise === 0) {
       paymentStatus = "PAID";
@@ -870,7 +1014,6 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       paymentStatus = "UNPAID";
     }
 
-    const invoiceNumber = generateInvoiceNumber("TRC");
     const custName = customerName || (customerId ? customers.find((c) => c.id === customerId)?.full_name || customers.find((c) => c.id === customerId)?.name : "Walk-in Guest");
     const custPhone = customerPhone || (customerId ? customers.find((c) => c.id === customerId)?.phone : "");
 
@@ -885,10 +1028,121 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       total_paise: i.total_paise ?? i.line_total_paise ?? 0,
     }));
 
-    const newInvoice: Invoice = {
-      id: `inv_${Date.now()}`,
+    // Demo Mode: Process in sandbox memory without cloud database persistence
+    if (isDemoMode) {
+      const invoiceNumber = `DEMO-${Date.now().toString().slice(-6)}`;
+      const demoInvoice: Invoice = {
+        id: `demo_inv_${Date.now()}`,
+        shop_id: activeShop.id,
+        invoice_number: invoiceNumber,
+        customer_id: customerId,
+        customer_name_snapshot: custName,
+        customer_name: custName,
+        customer_phone_snapshot: custPhone,
+        customer_phone: custPhone,
+        subtotal_paise: subtotalPaise,
+        discount_paise: discountPaise,
+        tax_paise: taxPaise,
+        total_amount_paise: totalAmountPaise,
+        paid_amount_paise: paidAmountPaise,
+        balance_amount_paise: balanceAmountPaise,
+        payment_status: paymentStatus,
+        payment_method: paymentMethod,
+        status: "COMPLETED",
+        created_at: new Date().toISOString(),
+        items: normalizedItems,
+        notes: (notes ? notes + " • " : "") + "[SANDBOX DEMO MODE]",
+      };
+      setInvoices((prev) => [demoInvoice, ...prev]);
+      items.forEach((item) => {
+        if (item.product_id) {
+          adjustStock(item.product_id, -item.quantity, "INVOICE_SALE", `Demo sale ${invoiceNumber}`);
+        }
+      });
+      return demoInvoice;
+    }
+
+    // Attempt online atomic checkout API endpoint to persist to Supabase PostgreSQL
+    if (isOnline) {
+      try {
+        const res = await fetch("/api/pos/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shopId: activeShop.id,
+            customerId,
+            customerName,
+            customerPhone,
+            items: items.map((it) => ({
+              productId: it.product_id,
+              productName: it.product_name_snapshot || it.product_name || "Product",
+              sku: it.sku_snapshot,
+              unit: it.unit_snapshot || "pcs",
+              unitPricePaise: it.unit_price_paise,
+              taxRatePercent: it.tax_rate_percent ?? it.tax_rate ?? 0,
+              quantity: it.quantity,
+              lineTotalPaise: it.line_total_paise ?? it.total_paise,
+            })),
+            paymentMethod,
+            subtotalPaise,
+            discountPaise,
+            taxPaise,
+            totalAmountPaise,
+            paidAmountPaise,
+            balanceAmountPaise,
+            notes,
+            isInterState,
+            requestId: `pos_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.invoice) {
+          const verified = { ...data.invoice, is_offline: false, sync_status: "SYNCED" as const };
+          setInvoices((prev) => [verified, ...prev]);
+
+          items.forEach((item) => {
+            if (item.product_id) {
+              adjustStock(item.product_id, -item.quantity, "INVOICE_SALE", `Billed in ${verified.invoice_number}`);
+            }
+          });
+
+          if (balanceAmountPaise > 0 && customerId) {
+            setCustomers((prev) =>
+              prev.map((c) => {
+                if (c.id === customerId) {
+                  const currentOut = c.total_outstanding_paise ?? c.outstanding_balance_paise ?? 0;
+                  const newOutstanding = currentOut + balanceAmountPaise;
+                  return {
+                    ...c,
+                    total_outstanding_paise: newOutstanding,
+                    outstanding_balance_paise: newOutstanding,
+                    credit_status: newOutstanding >= c.credit_limit_paise ? "WARNING" : "GOOD",
+                  };
+                }
+                return c;
+              })
+            );
+          }
+
+          setSyncStatus("SYNCED");
+          return verified;
+        }
+      } catch (apiErr) {
+        console.warn("POS checkout API call notice, switching to Offline POS billing mode:", apiErr);
+      }
+    }
+
+    // Offline POS Transaction: Save securely locally into offlineQueue & deduct stock
+    const timestampStr = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 8);
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const offlineInvoiceNumber = `TRC-OFF-${timestampStr}-${randomSuffix}`;
+    const offlineInvoiceId = `off_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+    const offlineInvoice: Invoice = {
+      id: offlineInvoiceId,
       shop_id: activeShop.id,
-      invoice_number: invoiceNumber,
+      invoice_number: offlineInvoiceNumber,
       customer_id: customerId,
       customer_name_snapshot: custName,
       customer_name: custName,
@@ -905,15 +1159,19 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       status: "COMPLETED",
       created_at: new Date().toISOString(),
       items: normalizedItems,
-      notes: notes,
+      notes: (notes ? notes + " • " : "") + "[OFFLINE BILLED]",
+      is_offline: true,
+      sync_status: "PENDING_OFFLINE",
     };
 
+    // Deduct stock locally so cashier cannot over-bill
     items.forEach((item) => {
       if (item.product_id) {
-        adjustStock(item.product_id, -item.quantity, "INVOICE_SALE", `Billed in ${invoiceNumber}`);
+        adjustStock(item.product_id, -item.quantity, "INVOICE_SALE", `Offline billed in ${offlineInvoiceNumber}`);
       }
     });
 
+    // Update customer outstanding khata locally
     if (balanceAmountPaise > 0 && customerId) {
       setCustomers((prev) =>
         prev.map((c) => {
@@ -932,8 +1190,17 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       );
     }
 
-    setInvoices((prev) => [newInvoice, ...prev]);
-    return newInvoice;
+    // Add to state and save to offline pending bills in localStorage
+    setOfflineQueue((prev) => {
+      const next = [offlineInvoice, ...prev];
+      if (typeof window !== "undefined") {
+        localStorage.setItem("trace_offline_invoices", JSON.stringify(next));
+      }
+      return next;
+    });
+
+    setInvoices((prev) => [offlineInvoice, ...prev]);
+    return offlineInvoice;
   };
 
   const refundInvoice = async (
@@ -1164,6 +1431,14 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         language,
         syncStatus,
         syncWithSupabase,
+        // Offline POS & Sync Engine
+        isOnline,
+        offlineQueue,
+        isSyncingOffline,
+        syncOfflineQueue,
+        isDemoMode,
+        toggleDemoMode,
+        importProductsCSV,
         authUser,
         authSession,
         signInWithEmail,

@@ -20,6 +20,9 @@ export async function POST(req: NextRequest) {
       notes,
       isInterState = false,
       requestId,
+      isOfflineSync = false,
+      offlineInvoiceNumber,
+      offlineCreatedAt,
     } = body;
 
     if (!shopId) {
@@ -30,17 +33,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Cannot process checkout with empty cart" }, { status: 400 });
     }
 
+    // Idempotency Guard: Prevent duplicate invoices if user double clicks or retries sync
+    if (requestId || offlineInvoiceNumber) {
+      const matchCriteria = offlineInvoiceNumber ? { invoice_number: offlineInvoiceNumber } : { id: requestId };
+      const { data: existing } = await supabase
+        .from("invoices")
+        .select("*, invoice_items(*)")
+        .match(matchCriteria)
+        .maybeSingle();
+
+      if (existing) {
+        return NextResponse.json({
+          success: true,
+          duplicatePrevented: true,
+          invoice: {
+            ...existing,
+            customer_name: existing.customer_name_snapshot,
+            customer_phone: existing.customer_phone_snapshot,
+            items: (existing.invoice_items || []).map((it: any) => ({
+              ...it,
+              product_name: it.product_name_snapshot,
+              total_paise: it.line_total_paise,
+            })),
+          },
+          message: "Transaction already processed (Idempotency verified)",
+        });
+      }
+    }
+
     // 1. Calculate Tax Breakdown (CGST / SGST vs IGST)
     const halfTax = Math.floor(taxPaise / 2);
     const taxBreakdown = isInterState
       ? { cgstPaise: 0, sgstPaise: 0, igstPaise: taxPaise }
       : { cgstPaise: halfTax, sgstPaise: taxPaise - halfTax, igstPaise: 0 };
 
-    // 2. Generate consecutive Invoice Number
+    // 2. Generate consecutive Invoice Number (or retain offline invoice number)
     const timestampStr = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 8);
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const invoiceNumber = `TRC-${timestampStr}-${randomSuffix}`;
-    const invoiceId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `inv_${Date.now()}`;
+    const invoiceNumber = isOfflineSync && offlineInvoiceNumber
+      ? offlineInvoiceNumber
+      : `TRC-${timestampStr}-${randomSuffix}`;
+    const invoiceId = requestId || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `inv_${Date.now()}`);
+    const createdAt = isOfflineSync && offlineCreatedAt ? offlineCreatedAt : new Date().toISOString();
 
     let paymentStatus: "PAID" | "PARTIALLY_PAID" | "UNPAID" = "PAID";
     if (balanceAmountPaise === 0) {
@@ -72,7 +106,7 @@ export async function POST(req: NextRequest) {
       payment_method: paymentMethod,
       notes: notes || `POS Sale - ${paymentMethod}`,
       status: "COMPLETED",
-      created_at: new Date().toISOString(),
+      created_at: createdAt,
     };
 
     const { error: invErr } = await supabase.from("invoices").insert([invoicePayload]);
@@ -93,7 +127,7 @@ export async function POST(req: NextRequest) {
       tax_paise: Math.round((item.unitPricePaise * (item.taxRatePercent || 0) / 100) * item.quantity),
       quantity: item.quantity,
       line_total_paise: item.lineTotalPaise,
-      created_at: new Date().toISOString(),
+      created_at: createdAt,
     }));
 
     if (lineItemRows.length > 0) {
@@ -101,25 +135,42 @@ export async function POST(req: NextRequest) {
       if (itemsErr) console.warn("Supabase invoice items insert notice:", itemsErr.message);
     }
 
-    // 5. Atomically deduct inventory & record stock movements
+    // 5. Atomically deduct inventory, handle stock conflicts & record stock movements
+    const stockConflicts: any[] = [];
     for (const item of items) {
       if (item.productId) {
         try {
           // Fetch current stock
           const { data: prodData } = await supabase
             .from("products")
-            .select("current_stock")
+            .select("current_stock, name")
             .eq("id", item.productId)
             .single();
 
           if (prodData) {
-            const newStock = Math.max(0, (prodData.current_stock || 0) - item.quantity);
+            const availableStock = prodData.current_stock ?? 0;
+            const hadShortage = availableStock < item.quantity;
+            if (hadShortage) {
+              stockConflicts.push({
+                productId: item.productId,
+                productName: prodData.name || item.productName,
+                demanded: item.quantity,
+                available: availableStock,
+                deficit: item.quantity - availableStock,
+              });
+            }
+
+            const newStock = Math.max(0, availableStock - item.quantity);
             await supabase
               .from("products")
               .update({ current_stock: newStock })
               .eq("id", item.productId);
 
-            // Record movement
+            // Record movement with conflict note if applicable
+            const movementNote = hadShortage
+              ? `[STOCK CONFLICT DETECTED] Billed ${item.quantity} while stock was ${availableStock} in ${invoiceNumber}`
+              : `Billed to ${custName} in invoice ${invoiceNumber}`;
+
             await supabase.from("stock_movements").insert([
               {
                 id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `mov_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -128,8 +179,8 @@ export async function POST(req: NextRequest) {
                 movement_type: "INVOICE_SALE",
                 quantity: -item.quantity,
                 reference_id: invoiceNumber,
-                notes: `Billed to ${custName} in invoice ${invoiceNumber}`,
-                created_at: new Date().toISOString(),
+                notes: movementNote,
+                created_at: createdAt,
               },
             ]);
           }
@@ -206,7 +257,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       invoice: verifiedInvoice,
-      message: "Sale completed and recorded in database",
+      stockConflicts,
+      hasStockConflict: stockConflicts.length > 0,
+      message: stockConflicts.length > 0
+        ? `Sale recorded with ${stockConflicts.length} stock conflict warnings`
+        : "Sale completed and recorded in database",
     });
   } catch (err: any) {
     console.error("POS Checkout API Exception:", err);
