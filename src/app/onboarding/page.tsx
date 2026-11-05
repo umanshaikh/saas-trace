@@ -189,6 +189,19 @@ export default function OnboardingPage() {
     }
   }, [products, selectedProdId]);
 
+  // Visual Confetti Celebration on reaching Step 8
+  useEffect(() => {
+    if (currentStep === 8) {
+      try {
+        confetti({
+          particleCount: 90,
+          spread: 80,
+          origin: { y: 0.5 },
+        });
+      } catch (e) {}
+    }
+  }, [currentStep]);
+
   // STEP WIZARD DEFINITIONS
   const stepsList = [
     { num: 1, label: "Welcome", icon: Sparkles },
@@ -452,6 +465,10 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
   };
 
   const handleContinueFromInventory = async () => {
+    if (products.length === 0) {
+      showToast("info", "No Products Added", "Add at least one product, or click 'Skip for Now' if you wish to configure inventory later.");
+      return;
+    }
     await saveOnboardingStep(4, {
       inventory: {
         mode: inventoryMode,
@@ -508,6 +525,10 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
 
   // Step 6: Save Payment Settings
   const handleSavePayments = async () => {
+    if (!acceptCash && !acceptUpi && !acceptCard && !acceptBankTransfer && !acceptCustomerCredit) {
+      showToast("error", "Payment Method Required", "Please enable at least one payment method to accept counter payments.");
+      return;
+    }
     setIsSaving(true);
     try {
       await saveOnboardingStep(6, {
@@ -1945,7 +1966,10 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
 
                 <Button
                   type="button"
-                  onClick={() => setCurrentStep(8)}
+                  onClick={async () => {
+                    await saveOnboardingStep(7, undefined, true);
+                    setCurrentStep(8);
+                  }}
                   className="font-bold text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
                   <span>Continue to Completion</span>
@@ -1962,15 +1986,21 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
         {currentStep === 8 && (
           <div className="text-center space-y-6 max-w-xl mx-auto py-6 animate-in fade-in duration-200">
             <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-2xl shadow-emerald-500/30">
-              <CheckCircle2 className="h-10 w-10" />
+              <CheckCircle2 className="h-10 w-10 animate-bounce" />
             </div>
 
             <div className="space-y-2">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-                Congratulations! Your shop is ready.
+              <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+                Your shop is ready!
               </h1>
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-lg font-bold text-emerald-400">{currentDisplayName}</span>
+                <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 text-[10px]">
+                  Verified & Ready
+                </Badge>
+              </div>
               <p className="text-xs sm:text-sm text-slate-400 font-medium">
-                <span className="text-emerald-400 font-bold">{currentDisplayName}</span> is now fully configured and live on the TRACE Cloud.
+                All business metadata, GST parameters, catalog items, and payment channels are live on TRACE Cloud.
               </p>
             </div>
 
@@ -2035,36 +2065,42 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               </div>
             </div>
 
-            {/* Action Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+            {/* Primary Action Button: Enter My Dashboard */}
+            <div className="pt-3 flex flex-col items-center justify-center gap-3">
+              <Button
+                size="lg"
+                onClick={() => handleFinishOnboarding("/dashboard")}
+                className="w-full sm:w-auto px-10 py-3.5 text-sm font-black bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white rounded-xl shadow-xl shadow-emerald-600/30 gap-2 transition-all transform hover:-translate-y-0.5"
+              >
+                <span>Enter My Dashboard</span>
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Secondary Direct Shortcuts */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => handleFinishOnboarding("/pos")}
-                className="p-4 rounded-xl border border-indigo-500/40 bg-indigo-600/20 hover:bg-indigo-600/30 text-white transition-all text-left space-y-1 shadow-lg shadow-indigo-500/10 group"
+                className="p-3.5 rounded-xl border border-indigo-500/40 bg-indigo-600/20 hover:bg-indigo-600/30 text-white transition-all text-left space-y-1 shadow-lg shadow-indigo-500/10 group"
               >
-                <Receipt className="h-5 w-5 text-indigo-400 group-hover:scale-110 transition-transform" />
-                <h4 className="text-xs font-bold">Open POS Counter</h4>
+                <div className="flex items-center gap-2">
+                  <Receipt className="h-4 w-4 text-indigo-400 group-hover:scale-110 transition-transform" />
+                  <h4 className="text-xs font-bold">Open POS Counter Directly</h4>
+                </div>
                 <p className="text-[10px] text-slate-400">Start billing walk-in customers immediately.</p>
               </button>
 
               <button
                 type="button"
-                onClick={() => handleFinishOnboarding("/dashboard")}
-                className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 text-white transition-all text-left space-y-1 group"
-              >
-                <Store className="h-5 w-5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                <h4 className="text-xs font-bold">Shop Dashboard</h4>
-                <p className="text-[10px] text-slate-400">View real sales reports, khata & stock trends.</p>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => handleFinishOnboarding("/ai-assistant")}
-                className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 text-white transition-all text-left space-y-1 group"
+                className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 text-white transition-all text-left space-y-1 group"
               >
-                <Sparkles className="h-5 w-5 text-violet-400 group-hover:scale-110 transition-transform" />
-                <h4 className="text-xs font-bold">Explore TRACE AI</h4>
-                <p className="text-[10px] text-slate-400">Ask questions about profit margins & GST.</p>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-violet-400 group-hover:scale-110 transition-transform" />
+                  <h4 className="text-xs font-bold">Explore TRACE AI Assistant</h4>
+                </div>
+                <p className="text-[10px] text-slate-400">Voice command stock adjustments and analytics.</p>
               </button>
             </div>
           </div>

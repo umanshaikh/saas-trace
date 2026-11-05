@@ -451,6 +451,11 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
             setOnboardingProgress(restored);
             if (typeof window !== "undefined") {
               localStorage.setItem(`trace_onboarding_${userShop.id}`, JSON.stringify(restored));
+              document.cookie = `trace_onboarding_completed=${restored.isCompleted ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
+            }
+          } else {
+            if (typeof window !== "undefined") {
+              document.cookie = "trace_onboarding_completed=false; path=/; max-age=31536000; SameSite=Lax";
             }
           }
         }
@@ -631,11 +636,16 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       if (typeof window !== "undefined") {
         localStorage.setItem("trace_active_shop_id", shopId);
         const cachedOnboarding = localStorage.getItem(`trace_onboarding_${shopId}`);
+        const isDemo = shopId.startsWith("shop_0") || shopId === "shop_default" || shopId === "11111111-1111-1111-1111-111111111111";
+        let isDone = isDemo;
         if (cachedOnboarding) {
           try {
-            setOnboardingProgress(JSON.parse(cachedOnboarding));
+            const parsed = JSON.parse(cachedOnboarding);
+            setOnboardingProgress(parsed);
+            isDone = Boolean(parsed.isCompleted);
           } catch (e) {}
         }
+        document.cookie = `trace_onboarding_completed=${isDone ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
       }
     }
   };
@@ -661,6 +671,7 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       };
       if (typeof window !== "undefined") {
         localStorage.setItem(`trace_onboarding_${activeShopId}`, JSON.stringify(updated));
+        document.cookie = `trace_onboarding_completed=${updated.isCompleted ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
       }
 
       (async () => {
@@ -700,6 +711,7 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       };
       if (typeof window !== "undefined") {
         localStorage.setItem(`trace_onboarding_${activeShopId}`, JSON.stringify(completed));
+        document.cookie = "trace_onboarding_completed=true; path=/; max-age=31536000; SameSite=Lax";
       }
 
       (async () => {
@@ -793,6 +805,9 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   const switchRole = (role: Role) => {
     setUserRole(role);
     if (!authUser) {
+      if (typeof window !== "undefined") {
+        document.cookie = "trace_onboarding_completed=true; path=/; max-age=31536000; SameSite=Lax";
+      }
       if (role === "OWNER") {
         setCurrentUser((prev) => ({
           ...prev,
@@ -944,6 +959,7 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     setOnboardingProgress(initialOnboarding);
     if (typeof window !== "undefined") {
       localStorage.setItem(`trace_onboarding_${newShop.id}`, JSON.stringify(initialOnboarding));
+      document.cookie = "trace_onboarding_completed=false; path=/; max-age=31536000; SameSite=Lax";
     }
 
     try {
@@ -968,6 +984,20 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
           invite_code: newShop.invite_code,
         },
       ]);
+
+      // Seed initial onboarding progress in Supabase
+      await supabase.from("onboarding_progress").upsert([
+        {
+          shop_id: newShop.id,
+          user_id: ownerId,
+          current_step: 1,
+          completed_steps: [],
+          is_completed: false,
+          step_data: initialOnboarding.stepData,
+          updated_at: new Date().toISOString(),
+        },
+      ], { onConflict: "user_id,shop_id" });
+
       if (error) {
         console.warn("Supabase register shop notice:", error.message);
       } else {

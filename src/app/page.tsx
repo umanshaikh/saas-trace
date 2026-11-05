@@ -1,294 +1,222 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useTrace } from "@/context/TraceContext";
 import {
   Sparkles,
   Calculator,
-  Bot,
-  Share2,
+  Package,
   CreditCard,
-  Zap,
+  Percent,
   ShieldCheck,
   ArrowRight,
-  CheckCircle2,
   Store,
-  Layers,
-  Check,
-  TrendingUp,
-  Receipt,
-  UserCheck,
+  CheckCircle2,
+  Lock,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-export default function MarketingLandingPage() {
+export default function WelcomeHomePage() {
+  const router = useRouter();
+  const { authUser, onboardingProgress, activeShop } = useTrace();
+  const [isNavigating, setIsNavigating] = useState(false);
+
+  React.useEffect(() => {
+    // Authenticated users with completed onboarding bypass directly to dashboard
+    if (authUser && onboardingProgress?.isCompleted) {
+      router.replace("/dashboard");
+    }
+  }, [authUser, onboardingProgress?.isCompleted, router]);
+
+  const handleGetStarted = () => {
+    setIsNavigating(true);
+    // If not authenticated, guide to registration
+    if (!authUser) {
+      router.push("/register");
+      return;
+    }
+
+    // If authenticated, check onboarding completion status
+    if (onboardingProgress && !onboardingProgress.isCompleted) {
+      router.push("/onboarding");
+      return;
+    }
+
+    // If already completed, go to dashboard
+    router.push("/dashboard");
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-indigo-500/20 selection:text-indigo-400">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-8">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 shadow-md shadow-indigo-500/30">
-              <Sparkles className="h-5 w-5 text-white" />
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500/20 selection:text-indigo-400 relative overflow-hidden">
+      {/* Dynamic Animated Ambient Glow Background */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {/* Upper Indigo Aura */}
+        <div className="absolute -top-[20%] left-1/2 -translate-x-1/2 w-[900px] h-[550px] bg-gradient-to-b from-indigo-600/20 via-violet-600/10 to-transparent blur-[140px] rounded-full animate-pulse" />
+        {/* Subtle Purple Lower Glow */}
+        <div className="absolute -bottom-[15%] right-[10%] w-[500px] h-[400px] bg-purple-600/15 blur-[120px] rounded-full pointer-events-none" />
+        {/* Subtle Grid Overlay */}
+        <div 
+          className="absolute inset-0 opacity-[0.03]" 
+          style={{
+            backgroundImage: `radial-gradient(circle at 1px 1px, #ffffff 1px, transparent 0)`,
+            backgroundSize: "32px 32px",
+          }}
+        />
+      </div>
+
+      {/* Top Header Navigation */}
+      <header className="relative z-20 border-b border-slate-800/80 bg-slate-950/60 backdrop-blur-md px-6 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <Link href="/" className="inline-flex items-center gap-2.5 group">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-500/30 group-hover:scale-105 transition-transform">
+              <Sparkles className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-extrabold tracking-wider text-white text-lg">
-                  TRACE
-                </span>
-                <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-bold text-indigo-400">
-                  SaaS
+                <span className="text-xl font-extrabold tracking-wider text-white">TRACE</span>
+                <span className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-bold text-indigo-400 border border-indigo-500/20">
+                  RETAIL OS
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium tracking-tight">
-                Smart Business. Simple Management.
-              </p>
+              <p className="text-[10px] text-slate-400 font-medium">Smart Business. Simple Management.</p>
             </div>
           </Link>
 
-          <div className="hidden md:flex items-center gap-6 text-xs font-semibold text-slate-400">
-            <a href="#features" className="hover:text-white transition-colors">
-              Platform Modules
-            </a>
-            <a href="#pos" className="hover:text-white transition-colors">
-              POS Counter
-            </a>
-            <a href="#ai" className="hover:text-white transition-colors">
-              TRACE AI Assistant
-            </a>
-            <a href="#network" className="hover:text-white transition-colors">
-              B2B Network
-            </a>
-            <a href="#pricing" className="hover:text-white transition-colors">
-              Pricing Plans
-            </a>
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            <Link href="/login">
-              <Button variant="ghost" size="sm" className="text-xs text-slate-300 hover:text-white">
-                Sign In
-              </Button>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/login"
+              className="px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+            >
+              Sign In
             </Link>
-            <Link href="/dashboard">
-              <Button variant="default" size="sm" className="text-xs font-bold shadow-md shadow-indigo-600/30">
-                Launch App
-              </Button>
-            </Link>
+            <Button
+              onClick={handleGetStarted}
+              disabled={isNavigating}
+              className="text-xs font-bold bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/25 px-4"
+            >
+              Get Started
+            </Button>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative overflow-hidden pt-20 pb-16 sm:pt-28 sm:pb-24">
-        {/* Glow Effects */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-indigo-600/15 blur-[120px] rounded-full pointer-events-none" />
+      {/* Main Hero Welcome Section */}
+      <main className="relative z-10 max-w-4xl mx-auto px-4 py-16 sm:py-24 text-center my-auto space-y-8 animate-in fade-in duration-300">
+        {/* Badge Indicator */}
+        <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-slate-900/90 border border-indigo-500/30 text-xs font-semibold text-indigo-300 shadow-md">
+          <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+          <span>Next-Generation Retail Management SaaS</span>
+        </div>
 
-        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 text-center space-y-6">
-          <Badge variant="brand" className="text-xs py-1 px-3 shadow-md">
-            🚀 The Unified Operating System for Modern Indian SMBs
-          </Badge>
-
-          <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white leading-[1.15]">
-            Smart Business. <br />
-            <span className="bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400 bg-clip-text text-transparent">
-              Simple Management.
-            </span>
+        {/* Clear Heading and Subheading */}
+        <div className="space-y-4">
+          <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white leading-[1.12]">
+            Welcome to <span className="bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400 bg-clip-text text-transparent">TRACE</span>
           </h1>
-
-          <p className="max-w-2xl mx-auto text-base sm:text-lg text-slate-400 font-normal leading-relaxed">
-            All-in-one AI-powered shop management for grocery, apparel, pharmacy, and retail merchants. Ultra-fast POS billing, multilingual AI inventory voice controls, decentralized B2B stock sharing, and automated PayLater khata credit.
-          </p>
-
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
-            <Link href="/pos">
-              <Button size="lg" className="gap-2 font-bold px-6 bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-600/25">
-                <Calculator className="h-4 w-4" />
-                <span>Try Live POS Counter (F1)</span>
-              </Button>
-            </Link>
-
-            <Link href="/dashboard">
-              <Button size="lg" variant="outline" className="gap-2 font-bold px-6 border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-200">
-                <Store className="h-4 w-4 text-indigo-400" />
-                <span>Explore Shop Dashboard</span>
-              </Button>
-            </Link>
-          </div>
-
-          {/* Quick Demo Role Logins Pill */}
-          <div className="pt-6">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-              Instant 1-Click Role Testing:
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Link href="/dashboard" className="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 hover:border-indigo-500/50 text-xs text-slate-300 font-medium transition-colors">
-                👑 Owner View
-              </Link>
-              <Link href="/inventory" className="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 hover:border-indigo-500/50 text-xs text-slate-300 font-medium transition-colors">
-                🛠️ Manager View
-              </Link>
-              <Link href="/pos" className="px-3 py-1 rounded-full bg-slate-900 border border-slate-800 hover:border-indigo-500/50 text-xs text-slate-300 font-medium transition-colors">
-                ⚡ Cashier View
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Feature Grid Section */}
-      <section id="features" className="py-16 max-w-7xl mx-auto px-4 sm:px-8 border-t border-slate-800/60">
-        <div className="text-center space-y-2 mb-12">
-          <Badge variant="outline" className="text-xs uppercase font-bold text-indigo-400">
-            Engineered For Excellence
-          </Badge>
-          <h2 className="text-3xl font-extrabold text-white">
-            7 Integrated Engines in One Seamless Platform
+          <h2 className="text-xl sm:text-2xl font-semibold text-slate-300">
+            Your business management journey starts here.
           </h2>
-          <p className="text-sm text-slate-400 max-w-xl mx-auto">
-            Everything your shop needs to replace five fragmented software tools.
+          <p className="max-w-2xl mx-auto text-sm sm:text-base text-slate-400 leading-relaxed font-normal">
+            TRACE helps you manage ultra-fast POS billing, automated inventory tracking, customer PayLater credit ledgers, and Indian GST compliance in one powerful, unified system.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* TRACE POS */}
-          <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 space-y-3 hover:border-indigo-500/40 transition-all">
-            <div className="h-10 w-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-              <Calculator className="h-5 w-5" />
-            </div>
-            <h3 className="text-lg font-bold text-white">1. TRACE POS Counter</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Sub-second keyboard billing (F1), barcode reader integration, live stock deduction, and multi-mode settlement (Cash, UPI QR, Card, Split, PayLater).
-            </p>
-            <Link href="/pos" className="inline-flex items-center gap-1 text-xs font-bold text-indigo-400 hover:text-indigo-300 pt-1">
-              Launch POS Counter <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
+        {/* Action Controls: Primary Get Started & Secondary Sign In */}
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
+          <Button
+            size="lg"
+            onClick={handleGetStarted}
+            disabled={isNavigating}
+            className="w-full sm:w-auto px-8 py-3.5 text-sm font-bold bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 shadow-xl shadow-indigo-500/25 rounded-xl gap-2 transition-all transform hover:-translate-y-0.5"
+          >
+            <span>{authUser ? "Continue Store Setup" : "Get Started"}</span>
+            <ArrowRight className="h-4 w-4" />
+          </Button>
 
-          {/* TRACE AI */}
-          <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 space-y-3 hover:border-indigo-500/40 transition-all">
-            <div className="h-10 w-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center">
-              <Bot className="h-5 w-5" />
-            </div>
-            <h3 className="text-lg font-bold text-white">2. TRACE AI Assistant</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Multilingual operational intelligence in English, Hindi, and Marathi. Safe server-side tool calling for automated stock adjustments and revenue inquiries.
-            </p>
-            <Link href="/ai-assistant" className="inline-flex items-center gap-1 text-xs font-bold text-purple-400 hover:text-purple-300 pt-1">
-              Chat with TRACE AI <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-
-          {/* TRACE B2B Network */}
-          <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 space-y-3 hover:border-indigo-500/40 transition-all">
-            <div className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-              <Share2 className="h-5 w-5" />
-            </div>
-            <h3 className="text-lg font-bold text-white">3. TRACE B2B Network</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Shop-to-shop inventory pooling. Establish QR-paired trust networks to browse neighboring catalogs and reserve wholesale stock on demand.
-            </p>
-            <Link href="/network" className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 hover:text-emerald-300 pt-1">
-              Explore B2B Network <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-
-          {/* TRACE PayLater */}
-          <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 space-y-3 hover:border-indigo-500/40 transition-all">
-            <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
-              <CreditCard className="h-5 w-5" />
-            </div>
-            <h3 className="text-lg font-bold text-white">4. TRACE PayLater Khata</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Modern digital udhar ledger with credit limits, WhatsApp payment reminders, and NPCI e-NACH / UPI AutoPay recurring mandate architecture.
-            </p>
-            <Link href="/paylater" className="inline-flex items-center gap-1 text-xs font-bold text-amber-400 hover:text-amber-300 pt-1">
-              Manage Khata Ledger <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-
-          {/* Subscriptions */}
-          <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 space-y-3 hover:border-indigo-500/40 transition-all">
-            <div className="h-10 w-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
-              <Zap className="h-5 w-5" />
-            </div>
-            <h3 className="text-lg font-bold text-white">5. TRACE Subscriptions</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Transparent affordable tiers starting at ₹99/mo for single counters, up to ₹399/mo for enterprise franchises with yearly discount incentives.
-            </p>
-            <Link href="/subscriptions" className="inline-flex items-center gap-1 text-xs font-bold text-blue-400 hover:text-blue-300 pt-1">
-              Compare SaaS Plans <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-
-          {/* Enterprise Security */}
-          <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/60 space-y-3 hover:border-emerald-500/40 transition-all">
-            <div className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <h3 className="text-lg font-bold text-white">6. Enterprise Cloud Security</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Multi-tenant PostgreSQL Row-Level Security with continuous backup and hardware thermal printer encryption.
-            </p>
-            <div className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 pt-1">
-              <span>DPDP Act 2023 Compliant</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing Preview */}
-      <section id="pricing" className="py-16 max-w-7xl mx-auto px-4 sm:px-8 border-t border-slate-800/60">
-        <div className="text-center space-y-2 mb-12">
-          <Badge variant="outline" className="text-xs uppercase font-bold text-emerald-400">
-            Simple Pricing
-          </Badge>
-          <h2 className="text-3xl font-extrabold text-white">
-            Designed for Local Indian Retail
-          </h2>
-          <p className="text-sm text-slate-400 max-w-lg mx-auto">
-            Try Free, upgrade when your shop grows. No hidden transaction fees.
-          </p>
+          <Link
+            href="/login"
+            className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800/80 text-xs font-semibold text-slate-300 hover:text-white transition-all text-center"
+          >
+            Already have an account? <span className="text-indigo-400 font-bold">Sign In</span>
+          </Link>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/50 space-y-4">
-            <h4 className="font-bold text-white text-base">Starter Plan</h4>
-            <div className="text-2xl font-extrabold text-white">₹99<span className="text-xs font-normal text-slate-400">/mo</span></div>
-            <p className="text-xs text-slate-400">Essential POS billing, 500 Products, 2 Staff Logins, PayLater Khata.</p>
-            <Link href="/subscriptions">
-              <Button variant="outline" className="w-full text-xs font-bold border-slate-700">Choose Starter</Button>
-            </Link>
-          </div>
-
-          <div className="p-6 rounded-2xl border-2 border-indigo-500 bg-indigo-950/20 space-y-4 shadow-xl shadow-indigo-600/10">
-            <div className="flex items-center justify-between">
-              <h4 className="font-bold text-white text-base">Pro Atelier</h4>
-              <Badge variant="brand" className="text-[10px]">POPULAR</Badge>
+        {/* Core Capabilities 4-Pillars Card Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-8 text-left">
+          <div className="p-3.5 rounded-2xl border border-slate-800/90 bg-slate-900/40 backdrop-blur-sm space-y-1.5 hover:border-indigo-500/30 transition-all">
+            <div className="h-8 w-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+              <Calculator className="h-4 w-4" />
             </div>
-            <div className="text-2xl font-extrabold text-white">₹199<span className="text-xs font-normal text-slate-400">/mo</span></div>
-            <p className="text-xs text-slate-400">Unlimited Products, TRACE AI Multilingual Voice Assistant, B2B Network.</p>
-            <Link href="/subscriptions">
-              <Button variant="default" className="w-full text-xs font-bold bg-indigo-600 hover:bg-indigo-500">Choose Pro</Button>
-            </Link>
+            <h4 className="text-xs font-bold text-white">POS Billing</h4>
+            <p className="text-[11px] text-slate-400 leading-snug">
+              Sub-second counter checkout & barcode scanning.
+            </p>
           </div>
 
-          <div className="p-6 rounded-2xl border border-slate-800 bg-slate-900/50 space-y-4">
-            <h4 className="font-bold text-white text-base">Business Enterprise</h4>
-            <div className="text-2xl font-extrabold text-white">₹399<span className="text-xs font-normal text-slate-400">/mo</span></div>
-            <p className="text-xs text-slate-400">Multi-Branch Network, Dedicated Manager, Custom API & AutoPay.</p>
-            <Link href="/subscriptions">
-              <Button variant="outline" className="w-full text-xs font-bold border-slate-700">Choose Business</Button>
-            </Link>
+          <div className="p-3.5 rounded-2xl border border-slate-800/90 bg-slate-900/40 backdrop-blur-sm space-y-1.5 hover:border-emerald-500/30 transition-all">
+            <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+              <Package className="h-4 w-4" />
+            </div>
+            <h4 className="text-xs font-bold text-white">Live Inventory</h4>
+            <p className="text-[11px] text-slate-400 leading-snug">
+              Atomic stock deduction & low-stock alerts.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl border border-slate-800/90 bg-slate-900/40 backdrop-blur-sm space-y-1.5 hover:border-amber-500/30 transition-all">
+            <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
+              <Percent className="h-4 w-4" />
+            </div>
+            <h4 className="text-xs font-bold text-white">GST Invoicing</h4>
+            <p className="text-[11px] text-slate-400 leading-snug">
+              Exact CGST/SGST & IGST tax calculation.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl border border-slate-800/90 bg-slate-900/40 backdrop-blur-sm space-y-1.5 hover:border-violet-500/30 transition-all">
+            <div className="h-8 w-8 rounded-lg bg-violet-500/10 flex items-center justify-center text-violet-400">
+              <CreditCard className="h-4 w-4" />
+            </div>
+            <h4 className="text-xs font-bold text-white">PayLater Khata</h4>
+            <p className="text-[11px] text-slate-400 leading-snug">
+              Customer credit ledgers & balance reminders.
+            </p>
           </div>
         </div>
-      </section>
+
+        {/* Security & Reliability Assurances */}
+        <div className="flex flex-wrap items-center justify-center gap-6 text-[11px] text-slate-500 pt-4 border-t border-slate-900">
+          <div className="flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-indigo-400" />
+            <span>Bank-Grade 256-Bit Encryption</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+            <span>DPDP Act 2023 Compliant</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Zap className="h-3.5 w-3.5 text-amber-400" />
+            <span>Offline-Resilient POS Engine</span>
+          </div>
+        </div>
+      </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/80 py-8 px-4 sm:px-8 text-center text-xs text-slate-500">
-        <p>© 2026 TRACE SaaS Platform. Built with Next.js, Supabase & TypeScript. All rights reserved.</p>
-        <p className="mt-1">Financial calculations strictly verified with integer paise precision.</p>
+      <footer className="relative z-10 border-t border-slate-800/60 bg-slate-950/80 px-6 py-4 text-center text-xs text-slate-500">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>&copy; {new Date().getFullYear()} TRACE Platform Inc. All rights reserved.</span>
+          <div className="flex items-center gap-4 text-slate-400">
+            <Link href="/login" className="hover:text-white transition-colors">Sign In</Link>
+            <span>•</span>
+            <Link href="/register" className="hover:text-white transition-colors">Register Shop</Link>
+            <span>•</span>
+            <Link href="/onboarding" className="hover:text-white transition-colors">Setup Wizard</Link>
+          </div>
+        </div>
       </footer>
     </div>
   );
