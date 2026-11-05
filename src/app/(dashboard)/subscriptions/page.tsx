@@ -56,22 +56,11 @@ export default function SubscriptionsPage() {
       if (!error && data && data.length > 0) {
         setRealBillingHistory(data);
       } else {
-        // Fallback to active subscription invoice if database has no prior history yet
-        const currentPrice =
-          activeSubscription?.plan?.monthly_price_paise || 9900;
-        setRealBillingHistory([
-          {
-            id: `SUB-INV-${new Date().getFullYear()}-001`,
-            created_at: activeSubscription?.starts_at || new Date().toISOString(),
-            plan_name: activeSubscription?.plan?.name || "Starter Plan",
-            amount_paise: currentPrice,
-            payment_status: "PAID",
-            payment_method: "UPI_VERIFIED",
-          },
-        ]);
+        setRealBillingHistory([]);
       }
     } catch (e) {
       console.warn("Failed to load subscription history:", e);
+      setRealBillingHistory([]);
     } finally {
       setIsLoadingHistory(false);
     }
@@ -415,6 +404,22 @@ export default function SubscriptionsPage() {
                     </td>
                   </tr>
                 ))}
+
+                {realBillingHistory.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-xs">
+                      <div className="flex flex-col items-center justify-center gap-2 max-w-sm mx-auto">
+                        <div className="h-10 w-10 rounded-xl bg-accent/40 flex items-center justify-center text-muted-foreground">
+                          <Receipt className="h-5 w-5" />
+                        </div>
+                        <p className="font-bold text-foreground">No Subscription Billing Receipts</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Official tax invoices and payment receipts will appear here automatically when plan renewals or upgrades are completed.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
