@@ -58,7 +58,9 @@ export async function POST(req: NextRequest) {
     const targetShopId = prod.shop_id || shopId;
 
     // 2. Prevent cross-tenant tampering: Authoritatively verify access to this product's shop
-    const authCheck = await verifyTenantAccess(req, targetShopId, "canAdjustStock");
+    const authCheck = await verifyTenantAccess(req, targetShopId, "canAdjustStock", {
+      requireActiveSubscription: true,
+    });
     if (!authCheck.authorized) {
       return authCheck.response!;
     }

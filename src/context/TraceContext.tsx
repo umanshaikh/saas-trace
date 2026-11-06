@@ -319,6 +319,40 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
           localStorage.setItem(`trace_onboarding_${targetShopId}`, JSON.stringify(restored));
         }
       }
+
+      // 7. Fetch subscription for target shop from Supabase
+      try {
+        const { data: dbSub, error: subErr } = await supabase
+          .from("shop_subscriptions")
+          .select("*, plan:subscription_plans(*)")
+          .eq("shop_id", targetShopId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!subErr && dbSub) {
+          const isExpired = new Date(dbSub.current_period_ends_at).getTime() < Date.now();
+          const computedStatus = dbSub.status === "ACTIVE" && isExpired ? "EXPIRED" : dbSub.status;
+          const normalizedSub: ShopSubscription = {
+            id: dbSub.id,
+            shop_id: dbSub.shop_id,
+            plan_id: dbSub.plan_id,
+            billing_cycle: dbSub.billing_cycle || "MONTHLY",
+            status: computedStatus,
+            starts_at: dbSub.starts_at,
+            current_period_ends_at: dbSub.current_period_ends_at,
+            cancel_at_period_end: Boolean(dbSub.cancel_at_period_end),
+            plan: dbSub.plan || subscriptionPlans.find((p) => p.id === dbSub.plan_id) || INITIAL_PLANS[0],
+          };
+          setSubscriptions((prev) => ({ ...prev, [targetShopId]: normalizedSub }));
+          if (typeof window !== "undefined") {
+            const isSubActive = computedStatus === "ACTIVE" && !isExpired;
+            document.cookie = `trace_subscription_active=${isSubActive ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
+          }
+        }
+      } catch (err) {
+        console.warn("Supabase fetch subscription error:", err);
+      }
     } catch (e) {
       console.warn("Tenant loadShopData warning:", e);
     }
@@ -832,16 +866,43 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
   const [networkOrders, setNetworkOrders] = useState<NetworkOrder[]>([]);
 
   const activeShop = allShops.find((s) => s.id === activeShopId) || allShops[0];
-  const activeSubscription = subscriptions[activeShop.id] || {
-    id: `sub_${activeShop.id}`,
-    shop_id: activeShop.id,
-    plan_id: "starter",
-    billing_cycle: "MONTHLY",
-    status: "ACTIVE",
-    starts_at: new Date().toISOString(),
-    current_period_ends_at: new Date(Date.now() + 365 * 86400000).toISOString(),
-    plan: INITIAL_PLANS[0],
-  };
+  const isDemo =
+    activeShop.id.startsWith("shop_0") ||
+    activeShop.id === "shop_default" ||
+    activeShop.id === "11111111-1111-1111-1111-111111111111";
+
+  const rawActiveSub = subscriptions[activeShop.id];
+  const isSubExpired = rawActiveSub?.current_period_ends_at
+    ? new Date(rawActiveSub.current_period_ends_at).getTime() < Date.now()
+    : false;
+
+  const activeSubscription: ShopSubscription = rawActiveSub
+    ? {
+        ...rawActiveSub,
+        status: rawActiveSub.status === "ACTIVE" && isSubExpired ? "EXPIRED" : rawActiveSub.status,
+      }
+    : {
+        id: `sub_${activeShop.id}`,
+        shop_id: activeShop.id,
+        plan_id: "starter",
+        billing_cycle: "MONTHLY",
+        status: isDemo ? "ACTIVE" : "PENDING",
+        starts_at: new Date().toISOString(),
+        current_period_ends_at: isDemo
+          ? new Date(Date.now() + 365 * 86400000).toISOString()
+          : new Date(0).toISOString(),
+        plan: INITIAL_PLANS[0],
+      };
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const isSubActive =
+        isDemo ||
+        (activeSubscription.status === "ACTIVE" &&
+          new Date(activeSubscription.current_period_ends_at).getTime() > Date.now());
+      document.cookie = `trace_subscription_active=${isSubActive ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
+    }
+  }, [activeSubscription.status, activeSubscription.current_period_ends_at, isDemo, activeShop.id]);
 
   const switchShop = (shopId: string) => {
     const target = allShops.find((s) => s.id === shopId);
@@ -854,8 +915,8 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       localStorage.setItem("trace_active_shop_id", shopId);
       const cachedOnboarding = localStorage.getItem(`trace_onboarding_${shopId}`);
-      const isDemo = shopId.startsWith("shop_0") || shopId === "shop_default" || shopId === "11111111-1111-1111-1111-111111111111";
-      let isDone = isDemo;
+      const isTargetDemo = shopId.startsWith("shop_0") || shopId === "shop_default" || shopId === "11111111-1111-1111-1111-111111111111";
+      let isDone = isTargetDemo;
       if (cachedOnboarding) {
         try {
           const parsed = JSON.parse(cachedOnboarding);
@@ -864,6 +925,14 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         } catch (e) {}
       }
       document.cookie = `trace_onboarding_completed=${isDone ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
+
+      const targetSub = subscriptions[shopId];
+      const isTargetSubActive =
+        isTargetDemo ||
+        (targetSub &&
+          targetSub.status === "ACTIVE" &&
+          new Date(targetSub.current_period_ends_at).getTime() > Date.now());
+      document.cookie = `trace_subscription_active=${isTargetSubActive ? "true" : "false"}; path=/; max-age=31536000; SameSite=Lax`;
     }
     // Refresh tenant data for newly switched shop
     loadShopData(shopId);
@@ -1176,9 +1245,23 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       lastUpdated: new Date().toISOString(),
     };
     setOnboardingProgress(initialOnboarding);
+    // Initialize PENDING subscription for new shop
+    const initialSub: ShopSubscription = {
+      id: `sub_${newShop.id}_${Date.now()}`,
+      shop_id: newShop.id,
+      plan_id: "starter",
+      billing_cycle: "MONTHLY",
+      status: "PENDING",
+      starts_at: new Date().toISOString(),
+      current_period_ends_at: new Date(0).toISOString(),
+      plan: INITIAL_PLANS[0],
+    };
+    setSubscriptions((prev) => ({ ...prev, [newShop.id]: initialSub }));
+
     if (typeof window !== "undefined") {
       localStorage.setItem(`trace_onboarding_${newShop.id}`, JSON.stringify(initialOnboarding));
       document.cookie = "trace_onboarding_completed=false; path=/; max-age=31536000; SameSite=Lax";
+      document.cookie = "trace_subscription_active=false; path=/; max-age=31536000; SameSite=Lax";
     }
 
     try {
@@ -1228,6 +1311,20 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
           updated_at: new Date().toISOString(),
         },
       ], { onConflict: "user_id,shop_id" });
+
+      // Seed pending subscription record in Supabase
+      await supabase.from("shop_subscriptions").upsert([
+        {
+          id: initialSub.id,
+          shop_id: newShop.id,
+          plan_id: "starter",
+          billing_cycle: "MONTHLY",
+          status: "PENDING",
+          starts_at: initialSub.starts_at,
+          current_period_ends_at: initialSub.current_period_ends_at,
+          created_at: new Date().toISOString(),
+        },
+      ], { onConflict: "shop_id" });
 
       // Reset local collections to an authentic clean slate for the newly created tenant
       setProducts([]);
@@ -2052,6 +2149,10 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       [activeShop.id]: newSub,
     }));
+
+    if (typeof window !== "undefined") {
+      document.cookie = "trace_subscription_active=true; path=/; max-age=31536000; SameSite=Lax";
+    }
   };
 
   const superAdminUpdateShopStatus = (shopId: string, status: AccessStatus, reason?: string) => {

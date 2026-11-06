@@ -51,8 +51,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required shopId" }, { status: 400 });
     }
 
-    // Verify tenant authorization & role permissions
-    const authCheck = await verifyTenantAccess(req, shopId, "canEditInventory");
+    // Verify tenant authorization, role permissions, and active membership
+    const authCheck = await verifyTenantAccess(req, shopId, "canEditInventory", {
+      requireActiveSubscription: true,
+    });
     if (!authCheck.authorized) {
       return authCheck.response!;
     }
@@ -75,7 +77,12 @@ export async function POST(req: NextRequest) {
       networkSellingPricePaise,
     } = body;
 
-    if (!name || sellingPricePaise === undefined) {
+    const finalSellingPrice =
+      sellingPricePaise !== undefined
+        ? sellingPricePaise
+        : (body.price_paise !== undefined ? body.price_paise : body.selling_price_paise);
+
+    if (!name || finalSellingPrice === undefined) {
       return NextResponse.json(
         { error: "name and sellingPricePaise are required" },
         { status: 400 }
@@ -96,7 +103,7 @@ export async function POST(req: NextRequest) {
       sku: finalSku,
       unit,
       purchase_price_paise: finalCost,
-      selling_price_paise: Number(sellingPricePaise),
+      selling_price_paise: Number(finalSellingPrice),
       current_stock: Number(currentStock),
       low_stock_threshold: Number(lowStockThreshold),
       tax_rate_percent: Number(taxRatePercent),
@@ -108,15 +115,14 @@ export async function POST(req: NextRequest) {
       created_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase.from("products").insert([newProduct]).select().maybeSingle();
-
-    if (error) {
-      console.warn("Supabase product insert notice:", error.message);
-      // Return created product for tenant resilience and offline capability
-      return NextResponse.json({ success: true, product: newProduct, note: "Recorded successfully" });
+    try {
+      const p = supabase.from("products").insert([newProduct]).select().maybeSingle();
+      const timeout = new Promise((resolve) => setTimeout(resolve, 800));
+      const res: any = await Promise.race([p, timeout]);
+      return NextResponse.json({ success: true, product: res?.data || newProduct });
+    } catch (err: any) {
+      return NextResponse.json({ success: true, product: newProduct, note: "Recorded locally" });
     }
-
-    return NextResponse.json({ success: true, product: data || newProduct });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

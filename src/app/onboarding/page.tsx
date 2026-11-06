@@ -68,6 +68,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const {
     activeShop,
+    activeSubscription,
     updateActiveShop,
     currentUser,
     products,
@@ -627,12 +628,28 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
     }
   };
 
-  // Step 8: Complete Onboarding & Exit
+  // Step 8: Complete Onboarding & Exit (Redirects to Membership if unpaid)
+  const isDemoShopStore =
+    activeShop.id.startsWith("shop_0") ||
+    activeShop.id === "shop_default" ||
+    activeShop.id === "11111111-1111-1111-1111-111111111111";
+
+  const isSubActiveOnboarding =
+    isDemoShopStore ||
+    (activeSubscription &&
+      activeSubscription.status === "ACTIVE" &&
+      new Date(activeSubscription.current_period_ends_at) > new Date());
+
   const handleFinishOnboarding = async (targetRoute: "/dashboard" | "/pos" | "/ai-assistant") => {
     setIsSaving(true);
     try {
       await completeOnboarding();
-      router.push(targetRoute);
+      if (!isSubActiveOnboarding) {
+        showToast("info", "Membership Required", "Shop setup complete! Please select a membership plan to unlock your dashboard.");
+        router.push("/subscriptions?welcome=true");
+      } else {
+        router.push(targetRoute);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -2065,16 +2082,26 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               </div>
             </div>
 
-            {/* Primary Action Button: Enter My Dashboard */}
+            {/* Primary Action Button */}
             <div className="pt-3 flex flex-col items-center justify-center gap-3">
               <Button
                 size="lg"
                 onClick={() => handleFinishOnboarding("/dashboard")}
                 className="w-full sm:w-auto px-10 py-3.5 text-sm font-black bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white rounded-xl shadow-xl shadow-emerald-600/30 gap-2 transition-all transform hover:-translate-y-0.5"
               >
-                <span>Enter My Dashboard</span>
+                <span>
+                  {isSubActiveOnboarding
+                    ? "Enter My Dashboard"
+                    : "Proceed to Membership Selection"}
+                </span>
                 <ArrowRight className="h-4 w-4" />
               </Button>
+              {!isSubActiveOnboarding && (
+                <p className="text-xs text-amber-400/90 font-medium flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Select a subscription plan to unlock your live shop counter and analytics
+                </p>
+              )}
             </div>
 
             {/* Secondary Direct Shortcuts */}
@@ -2086,9 +2113,15 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
               >
                 <div className="flex items-center gap-2">
                   <Receipt className="h-4 w-4 text-indigo-400 group-hover:scale-110 transition-transform" />
-                  <h4 className="text-xs font-bold">Open POS Counter Directly</h4>
+                  <h4 className="text-xs font-bold">
+                    {isSubActiveOnboarding ? "Open POS Counter Directly" : "Unlock POS Billing"}
+                  </h4>
                 </div>
-                <p className="text-[10px] text-slate-400">Start billing walk-in customers immediately.</p>
+                <p className="text-[10px] text-slate-400">
+                  {isSubActiveOnboarding
+                    ? "Start billing walk-in customers immediately."
+                    : "Activate membership to begin walk-in billing."}
+                </p>
               </button>
 
               <button

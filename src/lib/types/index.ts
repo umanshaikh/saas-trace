@@ -195,17 +195,66 @@ export interface SubscriptionPlan {
   is_active: boolean;
 }
 
+export type SubscriptionStatus =
+  | 'PENDING'
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'CANCELLED'
+  | 'PAYMENT_FAILED'
+  | 'TRIALING'
+  | 'PAST_DUE';
+
 export interface ShopSubscription {
   id: string;
   shop_id: string;
   plan_id: string;
   billing_cycle: 'MONTHLY' | 'YEARLY';
-  status: 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'EXPIRED';
+  status: SubscriptionStatus;
   starts_at: string;
   current_period_ends_at: string;
   current_period_end?: string;
   trial_ends_at?: string;
+  cancel_at_period_end?: boolean;
+  cancelled_at?: string;
   plan?: SubscriptionPlan;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  shop_id: string;
+  order_id?: string;
+  payment_id?: string;
+  invoice_id?: string;
+  gateway?: 'RAZORPAY' | 'CASHFREE' | 'UPI_DIRECT' | 'STRIPE' | 'RAZORPAY_TEST' | string;
+  gateway_provider?: string;
+  payment_method?: string;
+  plan_id?: string;
+  billing_cycle?: 'MONTHLY' | 'YEARLY';
+  amount_paise: number;
+  currency?: string;
+  status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
+  reconciled?: boolean;
+  signature?: string;
+  error_message?: string;
+  idempotency_key?: string;
+  metadata?: any;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface SubscriptionAuditLog {
+  id: string;
+  admin_email: string;
+  target_shop_id?: string;
+  action_type: 'ACTIVATE_SUBSCRIPTION' | 'EXTEND_PERIOD' | 'CANCEL_SUBSCRIPTION' | 'CHANGE_PLAN' | 'MANUAL_OVERRIDE';
+  previous_status?: string;
+  new_status?: string;
+  previous_plan_id?: string;
+  new_plan_id?: string;
+  reason: string;
+  details?: any;
+  ip_address?: string;
+  created_at: string;
 }
 
 export interface NetworkOrder {
@@ -238,18 +287,6 @@ export interface CreditTransaction {
   invoice_id?: string;
   payment_method?: string;
   reference_note?: string;
-  created_at: string;
-}
-
-export interface PaymentTransaction {
-  id: string;
-  shop_id: string;
-  invoice_id?: string;
-  amount_paise: number;
-  payment_method: string;
-  gateway_provider?: string;
-  status: string;
-  reconciled: boolean;
   created_at: string;
 }
 

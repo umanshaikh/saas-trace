@@ -11,8 +11,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required shopId or invoiceId" }, { status: 400 });
     }
 
-    // Verify tenant authorization & role permission (Refunds require Manager or Owner)
-    const authCheck = await verifyTenantAccess(req, shopId, "canProcessRefunds");
+    // Verify tenant authorization & role permission (Refunds require Manager or Owner + Active Subscription)
+    const authCheck = await verifyTenantAccess(req, shopId, "canProcessRefunds", {
+      requireActiveSubscription: true,
+    });
     if (!authCheck.authorized) {
       return authCheck.response!;
     }

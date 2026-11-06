@@ -30,8 +30,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required shopId" }, { status: 400 });
     }
 
-    // Verify tenant authorization & role permissions
-    const authCheck = await verifyTenantAccess(req, shopId, "canOperatePOS");
+    // Verify tenant authorization, role permissions, and active membership
+    const authCheck = await verifyTenantAccess(req, shopId, "canOperatePOS", {
+      requireActiveSubscription: true,
+    });
     if (!authCheck.authorized) {
       return authCheck.response!;
     }

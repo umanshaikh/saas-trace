@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 /**
- * TRACE Server-Side Route Protection & Mandatory Onboarding Middleware
- * Prevents unauthorized or incomplete shop users from accessing protected business modules.
+ * TRACE Server-Side Route Protection & Mandatory Membership Middleware
+ * Prevents unauthorized, incomplete, or non-subscribed shops from accessing protected business modules.
  */
 
-// Protected business module routes requiring completed onboarding
-const PROTECTED_ROUTES = [
+// Protected business modules requiring completed onboarding & active membership
+const PROTECTED_BUSINESS_ROUTES = [
   '/dashboard',
   '/pos',
   '/inventory',
@@ -16,7 +16,6 @@ const PROTECTED_ROUTES = [
   '/paylater',
   '/expenses',
   '/settings',
-  '/subscriptions',
   '/network',
   '/ai-assistant',
 ];
@@ -25,21 +24,24 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Check if current path is a protected module
-  const isProtectedRoute = PROTECTED_ROUTES.some(
+  const isProtectedModule = PROTECTED_BUSINESS_ROUTES.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`)
   );
 
-  if (isProtectedRoute) {
-    // Check authentication and onboarding status from cookies
-    const onboardingCompletedCookie = req.cookies.get('trace_onboarding_completed')?.value;
-    const authSessionCookie = req.cookies.get('trace_auth_token')?.value || 
-                              req.cookies.get('sb-access-token')?.value || 
-                              req.cookies.get('supabase-auth-token')?.value;
+  if (isProtectedModule) {
+    const onboardingCompleted = req.cookies.get('trace_onboarding_completed')?.value;
+    const subscriptionActive = req.cookies.get('trace_subscription_active')?.value;
 
-    // If onboarding is explicitly flagged as pending or false in cookie, redirect to /onboarding
-    if (onboardingCompletedCookie === 'false') {
+    // 1. Mandatory Onboarding Enforcement: If incomplete, redirect to /onboarding
+    if (onboardingCompleted === 'false') {
       const onboardingUrl = new URL('/onboarding', req.url);
       return NextResponse.redirect(onboardingUrl);
+    }
+
+    // 2. Mandatory Active Membership Enforcement: If subscription inactive/expired, redirect to /subscriptions
+    if (subscriptionActive === 'false') {
+      const subscriptionUrl = new URL('/subscriptions?required=true', req.url);
+      return NextResponse.redirect(subscriptionUrl);
     }
   }
 
