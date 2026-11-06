@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTrace } from "@/context/TraceContext";
 import { Sparkles, ArrowRight, ShieldCheck, UserCog, UserCheck, ShieldAlert, Lock, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TraceLogo } from "@/components/ui/TraceLogo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -60,13 +61,10 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 selection:bg-indigo-500/20 selection:text-indigo-400">
       <div className="w-full max-w-md space-y-6">
         {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white shadow-lg shadow-indigo-500/30">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <span className="text-2xl font-black tracking-wider text-white">TRACE</span>
-          </Link>
+        <div className="text-center space-y-3">
+          <div className="flex justify-center">
+            <TraceLogo size="xl" showTag tagText="RETAIL OS" linkTo="/" />
+          </div>
           <h1 className="text-xl font-bold text-white">Sign in to your Merchant Account</h1>
           <p className="text-xs text-slate-400">
             Enter your credentials or choose a 1-click test role below.

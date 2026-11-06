@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TraceLogo } from "@/components/ui/TraceLogo";
 
 export default function WelcomeHomePage() {
   const router = useRouter();
@@ -71,20 +72,7 @@ export default function WelcomeHomePage() {
       {/* Top Header Navigation */}
       <header className="relative z-20 border-b border-slate-800/80 bg-slate-950/60 backdrop-blur-md px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <Link href="/" className="inline-flex items-center gap-2.5 group">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 text-white shadow-lg shadow-indigo-500/30 group-hover:scale-105 transition-transform">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xl font-extrabold tracking-wider text-white">TRACE</span>
-                <span className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-bold text-indigo-400 border border-indigo-500/20">
-                  RETAIL OS
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-400 font-medium">Smart Business. Simple Management.</p>
-            </div>
-          </Link>
+          <TraceLogo size="lg" showTag tagText="RETAIL OS" showSubtext linkTo="/" />
 
           <div className="flex items-center gap-3">
             <Link

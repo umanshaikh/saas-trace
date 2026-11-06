@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useTrace } from "@/context/TraceContext";
 import { Badge } from "@/components/ui/badge";
+import { TraceLogo } from "@/components/ui/TraceLogo";
 
 interface NavItem {
   label: string;
@@ -106,14 +107,6 @@ export function Sidebar({
           badge: activeSubscription?.status || "Pending",
           badgeVariant: activeSubscription?.status === "ACTIVE" ? "success" : "warning",
         },
-        {
-          label: "Platform Admin",
-          href: "/admin/subscriptions",
-          icon: ShieldCheck,
-          badge: "Admin",
-          badgeVariant: "warning",
-          ownerOnly: true,
-        },
         { label: "Shop Settings", href: "/settings", icon: Settings },
       ],
     },
@@ -135,26 +128,9 @@ export function Sidebar({
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Brand Header */}
-        <div className="flex h-16 items-center justify-between border-b border-border/60 px-6">
-          <Link href="/dashboard" className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 shadow-md shadow-indigo-500/25">
-              <Sparkles className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold tracking-wider text-foreground text-lg">
-                  TRACE
-                </span>
-                <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 text-[9px] font-bold text-indigo-500">
-                  POS
-                </span>
-              </div>
-              <p className="text-[10px] text-muted-foreground font-medium tracking-tight">
-                Smart Business. Simple Management.
-              </p>
-            </div>
-          </Link>
+        {/* Brand Header with New Official TRACE Logo */}
+        <div className="flex h-16 items-center justify-between border-b border-border/60 px-5">
+          <TraceLogo size="md" showTag tagText="POS" showSubtext linkTo="/dashboard" />
         </div>
 
         {/* Current Active Shop Badge Pill */}

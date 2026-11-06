@@ -9,6 +9,7 @@ import { useTrace } from "@/context/TraceContext";
 import { Sparkles, ArrowRight, ShieldAlert, Zap, Store } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase/client";
+import { TraceLogo } from "@/components/ui/TraceLogo";
 
 export default function DashboardLayout({
   children,
@@ -50,8 +51,7 @@ export default function DashboardLayout({
 
   const isExemptRoute =
     pathname.startsWith("/subscriptions") ||
-    pathname.startsWith("/membership") ||
-    pathname.startsWith("/admin");
+    pathname.startsWith("/membership");
 
   useEffect(() => {
     let isMounted = true;
@@ -167,6 +167,10 @@ export default function DashboardLayout({
       return (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-white selection:bg-rose-500/20">
           <div className="max-w-lg w-full space-y-6 p-8 rounded-3xl border border-rose-500/30 bg-slate-900/90 shadow-2xl shadow-rose-500/10 backdrop-blur-xl animate-in fade-in duration-300">
+            <div className="flex justify-center mb-1">
+              <TraceLogo size="lg" showTag tagText="MEMBERSHIP" linkTo="/subscriptions" />
+            </div>
+
             <div className="h-16 w-16 mx-auto rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
               <ShieldAlert className="h-8 w-8 animate-pulse" />
             </div>
@@ -240,6 +244,10 @@ export default function DashboardLayout({
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-white selection:bg-indigo-500/20">
         <div className="max-w-md w-full space-y-6 p-8 rounded-3xl border border-amber-500/30 bg-slate-900/80 shadow-2xl shadow-amber-500/10 backdrop-blur-xl animate-in fade-in duration-300">
+          <div className="flex justify-center mb-1">
+            <TraceLogo size="lg" showTag tagText="ONBOARDING" linkTo="/subscriptions" />
+          </div>
+
           <div className="h-16 w-16 mx-auto rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
             <Zap className="h-8 w-8 animate-pulse" />
           </div>

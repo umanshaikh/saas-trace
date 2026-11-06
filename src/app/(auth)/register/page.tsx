@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Sparkles, Store, Mail, Lock, Phone, MapPin, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTrace } from "@/context/TraceContext";
+import { TraceLogo } from "@/components/ui/TraceLogo";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -43,13 +44,10 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 selection:bg-indigo-500/20 selection:text-indigo-400">
       <div className="w-full max-w-lg space-y-6">
         {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white shadow-lg shadow-indigo-500/30">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <span className="text-2xl font-black tracking-wider text-white">TRACE</span>
-          </Link>
+        <div className="text-center space-y-3">
+          <div className="flex justify-center">
+            <TraceLogo size="xl" showTag tagText="RETAIL OS" linkTo="/" />
+          </div>
           <h1 className="text-xl font-bold text-white">Register New Shop on TRACE</h1>
           <p className="text-xs text-slate-400">
             Set up your billing counter and AI-powered business inventory in 60 seconds.
