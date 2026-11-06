@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { useTrace } from "@/context/TraceContext";
 import { Sparkles, ArrowRight, ShieldAlert, Zap, Store } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase/client";
 
 export default function DashboardLayout({
@@ -49,6 +50,7 @@ export default function DashboardLayout({
 
   const isExemptRoute =
     pathname.startsWith("/subscriptions") ||
+    pathname.startsWith("/membership") ||
     pathname.startsWith("/admin");
 
   useEffect(() => {
@@ -157,8 +159,84 @@ export default function DashboardLayout({
   }
 
   // 2. If onboarding is complete, but shop does NOT have an active membership subscription:
-  // Display the exact requested barrier: "Your shop is registered successfully! To unlock your TRACE dashboard..."
   if (!isSubscriptionActive && !isDemoStore) {
+    const isExpiredState = activeSubscription?.status === "EXPIRED" || (activeSubscription?.current_period_ends_at && new Date(activeSubscription.current_period_ends_at).getTime() < Date.now());
+
+    // 2A: Dedicated Expired Membership Screen
+    if (isExpiredState) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-white selection:bg-rose-500/20">
+          <div className="max-w-lg w-full space-y-6 p-8 rounded-3xl border border-rose-500/30 bg-slate-900/90 shadow-2xl shadow-rose-500/10 backdrop-blur-xl animate-in fade-in duration-300">
+            <div className="h-16 w-16 mx-auto rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+              <ShieldAlert className="h-8 w-8 animate-pulse" />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black tracking-tight text-white">
+                Your TRACE Membership Has Expired!
+              </h2>
+              <p className="text-xs text-slate-300 leading-relaxed font-medium max-w-sm mx-auto">
+                Your subscription period has ended. Renew your membership to continue managing your business.
+              </p>
+            </div>
+
+            {/* Expiration Details Grid */}
+            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-xs space-y-2.5 text-left">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Shop:</span>
+                <span className="font-bold text-white">{activeShop.name}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Previous Plan:</span>
+                <Badge variant="brand" className="text-[10px] font-extrabold uppercase">
+                  {activeSubscription?.plan?.name || "Professional Plan"}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Expiration Date:</span>
+                <span className="font-bold text-rose-400">
+                  {activeSubscription?.current_period_ends_at
+                    ? new Date(activeSubscription.current_period_ends_at).toLocaleDateString()
+                    : "Expired"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Subscription Status:</span>
+                <Badge variant="destructive" className="text-[10px] font-bold uppercase">
+                  EXPIRED
+                </Badge>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                href="/subscriptions?renew=true"
+                className="w-full sm:w-auto flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-rose-600 via-rose-500 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-rose-600/25 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5"
+              >
+                <Zap className="h-4 w-4" />
+                <span>Renew Membership</span>
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/subscriptions"
+                className="w-full sm:w-auto py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 flex items-center justify-center gap-1.5 transition-all"
+              >
+                <span>View Plans</span>
+              </Link>
+              <Link
+                href="/subscriptions#history"
+                className="w-full sm:w-auto py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs border border-slate-800 flex items-center justify-center gap-1.5 transition-all"
+              >
+                <span>Payment History</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // 2B: Unpaid New Shop Setup Barrier
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-white selection:bg-indigo-500/20">
         <div className="max-w-md w-full space-y-6 p-8 rounded-3xl border border-amber-500/30 bg-slate-900/80 shadow-2xl shadow-amber-500/10 backdrop-blur-xl animate-in fade-in duration-300">
@@ -170,7 +248,7 @@ export default function DashboardLayout({
             <h2 className="text-xl font-extrabold tracking-tight text-white">
               Your shop is registered successfully!
             </h2>
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="text-xs text-slate-300 leading-relaxed font-medium">
               To unlock your TRACE dashboard and manage your business, please purchase a membership plan.
             </p>
           </div>

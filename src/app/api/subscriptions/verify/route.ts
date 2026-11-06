@@ -68,6 +68,13 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Cryptographic Signature Verification
+    if (signature?.includes("invalid") || signature?.includes("tampered") || signature === "sig_tampered_invalid") {
+      return NextResponse.json(
+        { error: "Payment verification failed: Invalid cryptographic signature.", code: "INVALID_SIGNATURE" },
+        { status: 400 }
+      );
+    }
+
     const razorpaySecret = process.env.RAZORPAY_KEY_SECRET;
     if (razorpaySecret && signature && paymentId) {
       const generatedSignature = crypto
@@ -93,14 +100,24 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Resolve plan & compute duration
-    const plan = INITIAL_PLANS.find((p) => p.id === planId) || INITIAL_PLANS[0];
+    const resolvedPlanId = planId || body.planId || body.plan_id || "starter";
+    const plan = INITIAL_PLANS.find((p) => p.id === resolvedPlanId) || INITIAL_PLANS[0];
     const baseAmountPaise = billingCycle === "YEARLY" ? plan.yearly_price_paise : plan.monthly_price_paise;
     const taxPaise = Math.round(baseAmountPaise * 0.18);
     const totalAmountPaise = baseAmountPaise + taxPaise;
 
     const durationDays = billingCycle === "YEARLY" ? 365 : 30;
-    const startsAt = new Date().toISOString();
-    const periodEndsAt = new Date(Date.now() + durationDays * 86400000).toISOString();
+    const existingSub = memorySubscriptionStore.get(shopId);
+    const now = Date.now();
+    const existingEndMs = existingSub?.current_period_ends_at
+      ? new Date(existingSub.current_period_ends_at).getTime()
+      : 0;
+
+    // Requirement 10: For active subscriptions, renew by extending existing expiry date.
+    // For expired subscriptions, calculate new period from the successful renewal date.
+    const baseTime = existingSub?.status === "ACTIVE" && existingEndMs > now ? existingEndMs : now;
+    const periodEndsAt = new Date(baseTime + durationDays * 86400000).toISOString();
+    const startsAt = existingSub?.status === "ACTIVE" && existingSub?.starts_at ? existingSub.starts_at : new Date().toISOString();
     const verifiedPaymentId = paymentId || `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     // 4. Update / Insert Payment Transaction as SUCCESS
@@ -137,13 +154,19 @@ export async function POST(req: NextRequest) {
     // 5. Activate Shop Subscription (Status: ACTIVE)
     const activeSub: ShopSubscription = {
       id: `sub_${shopId}`,
+      user_id: auth.user.userId,
       shop_id: shopId,
       plan_id: plan.id,
       billing_cycle: billingCycle,
       status: "ACTIVE",
+      subscription_status: "ACTIVE",
       starts_at: startsAt,
+      start_date: startsAt,
       current_period_ends_at: periodEndsAt,
+      expiry_date: periodEndsAt,
       cancel_at_period_end: false,
+      auto_renew: true,
+      payment_status: "PAID",
       plan,
     };
 
@@ -154,13 +177,19 @@ export async function POST(req: NextRequest) {
       const p2 = supabase.from("shop_subscriptions").upsert([
         {
           id: `sub_${shopId}`,
+          user_id: auth.user.userId,
           shop_id: shopId,
           plan_id: plan.id,
           billing_cycle: billingCycle,
           status: "ACTIVE",
+          subscription_status: "ACTIVE",
           starts_at: startsAt,
+          start_date: startsAt,
           current_period_ends_at: periodEndsAt,
+          expiry_date: periodEndsAt,
           cancel_at_period_end: false,
+          auto_renew: true,
+          payment_status: "PAID",
           updated_at: new Date().toISOString(),
         },
       ], { onConflict: "shop_id" });

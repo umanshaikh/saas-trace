@@ -95,9 +95,16 @@ export function Sidebar({
           label: "TRACE Subscriptions",
           href: "/subscriptions",
           icon: Zap,
-          badge: activeSubscription?.plan?.name || "Pro",
+          badge: activeSubscription?.plan?.name || "Professional",
           badgeVariant: "brand",
           ownerOnly: true,
+        },
+        {
+          label: "My Membership",
+          href: "/membership",
+          icon: Sparkles,
+          badge: activeSubscription?.status || "Pending",
+          badgeVariant: activeSubscription?.status === "ACTIVE" ? "success" : "warning",
         },
         {
           label: "Platform Admin",

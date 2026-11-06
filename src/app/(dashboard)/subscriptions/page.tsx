@@ -394,11 +394,11 @@ function SubscriptionsContent() {
                     : "border-border/70 hover:border-border hover:shadow-md bg-card"
                 }`}
               >
-                {/* Popular or Current Badge */}
+                {/* Recommended Badge */}
                 {isPro && !isCurrentActive && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <Badge className="bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-extrabold uppercase tracking-wider px-3 py-0.5 shadow-md shadow-indigo-600/40">
-                      Most Popular
+                    <Badge className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-[10px] font-black uppercase tracking-wider px-3.5 py-0.5 shadow-md shadow-indigo-600/40">
+                      Recommended Plan
                     </Badge>
                   </div>
                 )}

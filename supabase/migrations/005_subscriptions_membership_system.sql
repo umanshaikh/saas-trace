@@ -21,12 +21,12 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Seed Initial Membership Plans
+-- Seed Initial Membership Plans (Official TRACE Pricing)
 INSERT INTO subscription_plans (id, name, description, monthly_price_paise, yearly_price_paise, max_products, max_team_members, has_ai_assistant, has_network_access, has_paylater, has_advanced_reports, has_multi_branch, is_active)
 VALUES
-  ('starter', 'Starter Plan', 'Single-store essential billing, barcode scanning, inventory & customer khata ledger.', 9900, 99900, 500, 2, FALSE, FALSE, TRUE, FALSE, FALSE, TRUE),
-  ('pro', 'Professional Plan', 'TRACE AI voice assistant, B2B inter-shop network, PayLater khata & advanced reports.', 19900, 199900, 2500, 8, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE),
-  ('enterprise', 'Enterprise Plan', 'Multi-branch chain synchronization, centralized inventory, unlimited staff & dedicated CA audit export.', 49900, 499900, 50000, 100, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
+  ('starter', 'Starter Plan', 'Essential Product & Inventory Management, Order Billing, Khata Customer Ledger & Basic Sales Reports.', 100000, 1000000, 1000, 2, FALSE, FALSE, TRUE, FALSE, FALSE, TRUE),
+  ('pro', 'Professional Plan', 'Everything in Starter plus TRACE AI Voice Assistant, Advanced Analytics, Business Insights & Performance Reports.', 249900, 2499000, 5000, 10, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE),
+  ('enterprise', 'Enterprise Plan', 'Everything in Professional plus Multi-Branch Outlets, Premium Reporting, Priority Support & Advanced Business Management.', 499900, 4999000, 50000, 100, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE)
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
   description = EXCLUDED.description,
@@ -44,15 +44,21 @@ ON CONFLICT (id) DO UPDATE SET
 -- 2. SHOP SUBSCRIPTIONS TABLE (Status: PENDING, ACTIVE, EXPIRED, CANCELLED, PAYMENT_FAILED)
 CREATE TABLE IF NOT EXISTS shop_subscriptions (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  user_id TEXT, -- Authenticated owner ID
   shop_id TEXT NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
   plan_id VARCHAR(50) NOT NULL REFERENCES subscription_plans(id),
   billing_cycle VARCHAR(20) NOT NULL DEFAULT 'MONTHLY', -- MONTHLY, YEARLY
   status VARCHAR(50) NOT NULL DEFAULT 'PENDING', -- PENDING, ACTIVE, EXPIRED, CANCELLED, PAYMENT_FAILED
+  subscription_status VARCHAR(50) DEFAULT 'PENDING',
   starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  start_date TIMESTAMPTZ DEFAULT NOW(),
   current_period_ends_at TIMESTAMPTZ NOT NULL,
+  expiry_date TIMESTAMPTZ,
   trial_ends_at TIMESTAMPTZ,
   cancel_at_period_end BOOLEAN DEFAULT FALSE,
+  auto_renew BOOLEAN DEFAULT TRUE,
   cancelled_at TIMESTAMPTZ,
+  payment_status VARCHAR(50) DEFAULT 'PAID',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(shop_id)
@@ -176,3 +182,20 @@ CREATE POLICY "Subscription invoices insert policy" ON subscription_invoices
 -- Subscription Audit Logs: Super Admin / System internal
 CREATE POLICY "Subscription audit logs select policy" ON subscription_audit_logs
   FOR ALL USING (true);
+
+-- 6. AUTOMATIC EXPIRY & EXPIRATION CHECK FUNCTION
+CREATE OR REPLACE FUNCTION check_and_expire_subscriptions()
+RETURNS TABLE(expired_shop_id TEXT, previous_status VARCHAR) AS $$
+BEGIN
+  RETURN QUERY
+  UPDATE shop_subscriptions
+  SET
+    status = 'EXPIRED',
+    subscription_status = 'EXPIRED',
+    updated_at = NOW()
+  WHERE
+    status = 'ACTIVE'
+    AND current_period_ends_at < NOW()
+  RETURNING shop_id AS expired_shop_id, 'ACTIVE'::VARCHAR AS previous_status;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

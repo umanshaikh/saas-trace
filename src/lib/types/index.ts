@@ -206,16 +206,24 @@ export type SubscriptionStatus =
 
 export interface ShopSubscription {
   id: string;
+  user_id?: string;
   shop_id: string;
   plan_id: string;
   billing_cycle: 'MONTHLY' | 'YEARLY';
   status: SubscriptionStatus;
+  subscription_status?: SubscriptionStatus; // user schema alias
   starts_at: string;
+  start_date?: string; // user schema alias
   current_period_ends_at: string;
+  expiry_date?: string; // user schema alias
   current_period_end?: string;
   trial_ends_at?: string;
   cancel_at_period_end?: boolean;
+  auto_renew?: boolean;
   cancelled_at?: string;
+  payment_status?: string;
+  created_at?: string;
+  updated_at?: string;
   plan?: SubscriptionPlan;
 }
 

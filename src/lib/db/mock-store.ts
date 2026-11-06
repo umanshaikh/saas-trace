@@ -18,10 +18,10 @@ export const INITIAL_PLANS: SubscriptionPlan[] = [
   {
     id: 'starter',
     name: 'Starter Plan',
-    description: 'Single-store essential billing, barcode scanning, inventory & customer khata ledger.',
-    monthly_price_paise: 9900, // ₹99
-    yearly_price_paise: 99900, // ₹999/yr
-    max_products: 500,
+    description: 'Essential Product & Inventory Management, Order Billing, Khata Customer Ledger & Basic Sales Reports.',
+    monthly_price_paise: 100000, // ₹1,000/mo
+    yearly_price_paise: 1000000, // ₹10,000/yr
+    max_products: 1000,
     max_team_members: 2,
     has_ai_assistant: false,
     has_network_access: false,
@@ -32,12 +32,12 @@ export const INITIAL_PLANS: SubscriptionPlan[] = [
   },
   {
     id: 'pro',
-    name: 'TRACE Pro',
-    description: 'TRACE AI multilingual voice assistant, B2B network access, PayLater khata & advanced reports.',
-    monthly_price_paise: 19900, // ₹199
-    yearly_price_paise: 199900, // ₹1,999/yr
-    max_products: 2500,
-    max_team_members: 8,
+    name: 'Professional Plan',
+    description: 'Everything in Starter plus TRACE AI Voice Assistant, Advanced Analytics, Business Insights & Performance Reports.',
+    monthly_price_paise: 249900, // ₹2,499/mo
+    yearly_price_paise: 2499000, // ₹24,990/yr
+    max_products: 5000,
+    max_team_members: 10,
     has_ai_assistant: true,
     has_network_access: true,
     has_paylater: true,
@@ -48,9 +48,9 @@ export const INITIAL_PLANS: SubscriptionPlan[] = [
   {
     id: 'enterprise',
     name: 'Enterprise Plan',
-    description: 'Multi-branch chain synchronization, centralized inventory, unlimited staff & dedicated CA audit export.',
-    monthly_price_paise: 49900, // ₹499
-    yearly_price_paise: 499900, // ₹4,999/yr
+    description: 'Everything in Professional plus Multi-Branch Outlets, Premium Reporting, Priority Support & Advanced Business Management.',
+    monthly_price_paise: 499900, // ₹4,999/mo
+    yearly_price_paise: 4999000, // ₹49,990/yr
     max_products: 50000,
     max_team_members: 100,
     has_ai_assistant: true,
