@@ -304,22 +304,42 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Ensure owner profile exists in profiles table so foreign key constraint is satisfied
+    let profileId = cleanOwnerId;
     try {
-      await supabaseAdmin.from("profiles").upsert(
-        [
-          {
-            id: cleanOwnerId,
-            user_id: cleanOwnerId,
-            full_name: owner_name || "Store Owner",
-            email: cleanEmail,
-            phone: phone || "+919999999999",
-            preferred_language: "en",
-            is_super_admin: false,
-            updated_at: new Date().toISOString(),
-          },
-        ],
-        { onConflict: "id" }
-      );
+      const { data: existingProf } = await supabaseAdmin
+        .from("profiles")
+        .select("id, email")
+        .eq("email", cleanEmail)
+        .maybeSingle();
+
+      if (existingProf) {
+        profileId = existingProf.id;
+      } else {
+        const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const validUserId = UUID_REGEX.test(cleanOwnerId) ? cleanOwnerId : null;
+
+        const { data: newProf, error: pErr } = await supabaseAdmin
+          .from("profiles")
+          .upsert(
+            [
+              {
+                id: cleanOwnerId,
+                user_id: validUserId,
+                full_name: owner_name || "Store Owner",
+                email: cleanEmail,
+                phone: phone || "+919999999999",
+                preferred_language: "en",
+                is_super_admin: false,
+                updated_at: new Date().toISOString(),
+              },
+            ],
+            { onConflict: "id" }
+          )
+          .select()
+          .maybeSingle();
+
+        if (newProf) profileId = newProf.id;
+      }
     } catch (pErr) {
       console.warn("Notice ensuring profile exists:", pErr);
     }
@@ -343,7 +363,7 @@ export async function POST(req: NextRequest) {
       name: cleanName,
       slug,
       business_type: (business_type || "retail").toLowerCase(),
-      owner_id: cleanOwnerId,
+      owner_id: profileId,
       phone: phone || "+919999999999",
       email: cleanEmail,
       address_line1: address_line1 || `${city || "Mumbai"} Central Market`,
@@ -385,7 +405,7 @@ export async function POST(req: NextRequest) {
           {
             id: `mem_${shopId}_owner`,
             shop_id: shopId,
-            profile_id: cleanOwnerId,
+            profile_id: profileId,
             role: "OWNER",
             is_active: true,
             created_at: new Date().toISOString(),
