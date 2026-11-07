@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
 
 // In-memory cross-node fallback registry for active deployment sync
-export const globalShopRegistrations = new Map<string, any>();
+const globalShopRegistrations = new Map<string, any>();
 
 export async function GET(req: NextRequest) {
   try {
