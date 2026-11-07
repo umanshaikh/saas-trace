@@ -1,6 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
 
+// In-memory cross-node fallback registry for active deployment sync
+export const globalShopRegistrations = new Map<string, any>();
+
+export async function GET(req: NextRequest) {
+  try {
+    const list = Array.from(globalShopRegistrations.values());
+    return NextResponse.json({
+      success: true,
+      count: list.length,
+      shops: list,
+    });
+  } catch (err: any) {
+    return NextResponse.json({ success: true, count: 0, shops: [] });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { shopId, status, rejectionReason, approvedBy } = body;
+    if (!shopId || !status) {
+      return NextResponse.json({ error: "shopId and status required" }, { status: 400 });
+    }
+    const existing = globalShopRegistrations.get(shopId);
+    if (existing) {
+      existing.access_status = status;
+      if (rejectionReason) existing.suspension_reason = rejectionReason;
+      let meta: any = {};
+      try {
+        if (existing.qr_code_payload) meta = JSON.parse(existing.qr_code_payload);
+      } catch (e) {}
+      if (approvedBy) meta.approved_by = approvedBy;
+      if (rejectionReason) meta.rejection_reason = rejectionReason;
+      existing.qr_code_payload = JSON.stringify(meta);
+      globalShopRegistrations.set(shopId, existing);
+    }
+    return NextResponse.json({ success: true, shop: existing });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -98,6 +140,9 @@ export async function POST(req: NextRequest) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    // Store in global registration registry
+    globalShopRegistrations.set(shopId, newShop);
 
     // 4. Save to Supabase shops table
     const { error: insertErr } = await supabase.from("shops").insert([newShop]);
