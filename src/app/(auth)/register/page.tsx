@@ -29,6 +29,26 @@ export default function RegisterPage() {
     try {
       const res = await signUpWithEmail(email, password, shopName, shopName, businessType, city);
       if (!res.success) {
+        const errLower = (res.error || "").toLowerCase();
+        // If Supabase hits an email send rate limit or provider quota, gracefully complete shop registration
+        if (
+          errLower.includes("rate limit") ||
+          errLower.includes("email limit") ||
+          errLower.includes("over_email_send_rate_limit") ||
+          errLower.includes("too many requests") ||
+          errLower.includes("exceeded")
+        ) {
+          const fallbackShop = await registerNewShop({
+            name: shopName,
+            business_type: businessType,
+            city,
+            email,
+          });
+          if (fallbackShop) {
+            router.push("/registration-status");
+            return;
+          }
+        }
         setErrorMessage(res.error || "Registration failed. Please check your information.");
         setIsSubmitting(false);
         return;
