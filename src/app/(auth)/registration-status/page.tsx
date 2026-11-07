@@ -66,16 +66,16 @@ export default function RegistrationStatusPage() {
         if (!error && data) latestShop = data;
       } catch (e) {}
 
-      // Fallback check in persistent onboarding_progress
+      // Fallback check in persistent profiles application store
       if (!latestShop) {
         try {
-          const { data: opData } = await supabase
-            .from("onboarding_progress")
+          const { data: profs } = await supabase
+            .from("profiles")
             .select("*")
-            .eq("shop_id", currentShop.id)
+            .like("avatar_url", `APP:%${currentShop.id}%`)
             .maybeSingle();
-          if (opData?.step_data?.application) {
-            const app = opData.step_data.application;
+          if (profs?.avatar_url) {
+            const app = JSON.parse(profs.avatar_url.substring(4));
             latestShop = {
               ...currentShop,
               access_status: app.status || "PENDING_APPROVAL",
