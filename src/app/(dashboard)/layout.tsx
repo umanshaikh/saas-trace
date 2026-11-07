@@ -70,7 +70,8 @@ export default function DashboardLayout({
         !isDemoStore &&
         (activeShop.access_status === "PENDING_APPROVAL" ||
           activeShop.access_status === "REJECTED" ||
-          activeShop.access_status === "INFO_REQUESTED")
+          activeShop.access_status === "INFO_REQUESTED" ||
+          activeShop.access_status === "SUSPENDED")
       ) {
         if (isMounted) {
           setAccessBlocked(true);

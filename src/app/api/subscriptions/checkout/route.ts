@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyTenantAccess } from "@/lib/auth/serverAuth";
 import { INITIAL_PLANS } from "@/lib/db/mock-store";
 
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. CRITICAL REQUIREMENT: Strictly verify that the shop is APPROVED by Super Admin
-    const { data: shopRecord, error: shopErr } = await supabase
+    const { data: shopRecord, error: shopErr } = await supabaseAdmin
       .from("shops")
       .select("id, name, access_status, suspension_reason")
       .eq("id", shopId)

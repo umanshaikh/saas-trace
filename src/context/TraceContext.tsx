@@ -378,6 +378,26 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
+      // Authoritative status check: fetch fresh shop record from server API
+      if (activeShopId) {
+        try {
+          const apiRes = await fetch(`/api/shops/register?shopId=${encodeURIComponent(activeShopId)}`, {
+            cache: "no-store",
+          });
+          if (apiRes.ok) {
+            const apiData = await apiRes.json();
+            if (apiData.shop) {
+              setAllShops((prev) => {
+                const updated = prev.map((s) => (s.id === apiData.shop.id ? { ...s, ...apiData.shop } : s));
+                if (!updated.some((s) => s.id === apiData.shop.id)) updated.unshift(apiData.shop);
+                if (typeof window !== "undefined") localStorage.setItem("trace_shops", JSON.stringify(updated));
+                return updated;
+              });
+            }
+          }
+        } catch (e) {}
+      }
+
       // 2. Load tenant data scoped strictly to activeShopId
       await loadShopData(activeShopId);
 
@@ -1370,9 +1390,9 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         },
       ], { onConflict: "shop_id,profile_id" });
 
-      // Dispatch to trusted server endpoint to record metadata & alert Super Admin
+      // Dispatch to trusted server endpoint to record metadata & authoritatively save to Supabase shops table
       try {
-        await fetch("/api/shops/register", {
+        const regRes = await fetch("/api/shops/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1391,6 +1411,21 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
             gstin: data.gstin,
           }),
         });
+        if (regRes.ok) {
+          const regData = await regRes.json();
+          if (regData.shop) {
+            Object.assign(newShop, regData.shop);
+            setActiveShopId(newShop.id);
+            setAllShops((prev) => {
+              const updated = prev.map((s) => (s.id === newShop.id ? { ...s, ...newShop } : s));
+              if (typeof window !== "undefined") {
+                localStorage.setItem("trace_shops", JSON.stringify(updated));
+                localStorage.setItem("trace_active_shop_id", newShop.id);
+              }
+              return updated;
+            });
+          }
+        }
       } catch (apiErr) {}
 
       // Seed initial onboarding progress & shop application in Supabase

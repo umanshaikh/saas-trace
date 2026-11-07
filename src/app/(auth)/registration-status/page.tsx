@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -19,6 +19,7 @@ import {
   Send,
   HelpCircle,
   LogOut,
+  Sparkles,
 } from "lucide-react";
 import { useTrace } from "@/context/TraceContext";
 import { Button } from "@/components/ui/button";
@@ -34,12 +35,15 @@ export default function RegistrationStatusPage() {
   const [currentShop, setCurrentShop] = useState<any>(activeShop);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   // Additional info form state
   const [additionalNote, setAdditionalNote] = useState("");
   const [updatedGstin, setUpdatedGstin] = useState(activeShop.gstin || "");
   const [updatedAddress, setUpdatedAddress] = useState(activeShop.address_line1 || "");
   const [isSubmittingInfo, setIsSubmittingInfo] = useState(false);
+
+  const hasRedirectedRef = useRef(false);
 
   // Parse metadata from qr_code_payload if present
   let metadata: any = {};
@@ -51,69 +55,110 @@ export default function RegistrationStatusPage() {
 
   const currentStatus = currentShop.access_status || "PENDING_APPROVAL";
 
-  // Real-time status refresh from Supabase
-  const checkStatus = async () => {
-    setIsRefreshing(true);
-    setStatusMessage(null);
-    try {
-      let latestShop: any = null;
+  // Invalidate cache and transition to membership selection upon approval
+  const handleApprovalTransition = useCallback(
+    (approvedRecord: any) => {
+      if (hasRedirectedRef.current) return;
+      hasRedirectedRef.current = true;
+      setIsRedirecting(true);
+
+      // Invalidate and update local cache
       try {
-        const { data, error } = await supabase
-          .from("shops")
-          .select("*")
-          .eq("id", currentShop.id)
-          .maybeSingle();
-        if (!error && data) latestShop = data;
+        const cachedRaw = localStorage.getItem("trace_shops");
+        if (cachedRaw) {
+          const list = JSON.parse(cachedRaw);
+          const updatedList = list.map((s: any) =>
+            s.id === approvedRecord.id ? { ...s, ...approvedRecord, access_status: "APPROVED" } : s
+          );
+          localStorage.setItem("trace_shops", JSON.stringify(updatedList));
+        }
+        localStorage.setItem("trace_active_shop_id", approvedRecord.id);
       } catch (e) {}
 
-      // Fallback check in persistent profiles application store
-      if (!latestShop) {
+      updateActiveShop({ ...approvedRecord, access_status: "APPROVED" });
+      setCurrentShop((prev: any) => ({ ...prev, ...approvedRecord, access_status: "APPROVED" }));
+
+      confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+      setStatusMessage("Application APPROVED! Redirecting to membership plan selection...");
+
+      setTimeout(() => {
+        router.push("/subscriptions");
+      }, 1000);
+    },
+    [router, updateActiveShop]
+  );
+
+  // Status check: queries Supabase directly with fallback to server registration endpoint
+  const checkStatus = useCallback(
+    async (showLoading = false) => {
+      if (hasRedirectedRef.current) return;
+      if (showLoading) setIsRefreshing(true);
+
+      try {
+        let latestRecord: any = null;
+
+        // 1. Check authoritative server API endpoint (which reads Supabase via service_role)
         try {
-          const { data: profs } = await supabase
-            .from("profiles")
-            .select("*")
-            .like("avatar_url", `APP:%${currentShop.id}%`)
-            .maybeSingle();
-          if (profs?.avatar_url) {
-            const app = JSON.parse(profs.avatar_url.substring(4));
-            latestShop = {
-              ...currentShop,
-              access_status: app.status || "PENDING_APPROVAL",
-              suspension_reason: app.rejection_reason || null,
-              qr_code_payload: JSON.stringify(app),
-            };
+          const apiRes = await fetch(`/api/shops/register?shopId=${encodeURIComponent(currentShop.id)}`, {
+            cache: "no-store",
+          });
+          if (apiRes.ok) {
+            const apiData = await apiRes.json();
+            if (apiData.shop) {
+              latestRecord = apiData.shop;
+            }
           }
-        } catch (e) {}
-      }
+        } catch (apiErr) {}
 
-      if (latestShop) {
-        setCurrentShop(latestShop);
-        updateActiveShop(latestShop);
-
-        if (latestShop.access_status === "APPROVED" || latestShop.access_status === "ACTIVE") {
-          confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
-          setStatusMessage("Congratulations! Your shop application has been APPROVED.");
-        } else if (latestShop.access_status === "REJECTED") {
-          setStatusMessage("Your application review has concluded. Status: REJECTED.");
-        } else if (latestShop.access_status === "INFO_REQUESTED") {
-          setStatusMessage("Action Required: Super Admin has requested additional details.");
-        } else {
-          setStatusMessage("Status refreshed. Application is currently under review.");
+        // 2. Direct Supabase query fallback
+        if (!latestRecord) {
+          try {
+            const { data: dbData } = await supabase
+              .from("shops")
+              .select("*")
+              .eq("id", currentShop.id)
+              .maybeSingle();
+            if (dbData) latestRecord = dbData;
+          } catch (dbErr) {}
         }
+
+        if (latestRecord) {
+          const newStatus = latestRecord.access_status;
+          setCurrentShop(latestRecord);
+          updateActiveShop(latestRecord);
+
+          if (newStatus === "APPROVED" || newStatus === "ACTIVE") {
+            handleApprovalTransition(latestRecord);
+            return;
+          } else if (newStatus === "REJECTED") {
+            setStatusMessage("Your application review has concluded. Status: REJECTED.");
+          } else if (newStatus === "INFO_REQUESTED") {
+            setStatusMessage("Action Required: Super Admin has requested additional details.");
+          } else if (newStatus === "SUSPENDED") {
+            setStatusMessage("Your shop account is currently suspended.");
+          } else {
+            if (showLoading) {
+              setStatusMessage("Status refreshed. Application is currently under review by Super Admin.");
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn("Status check notice:", err);
+      } finally {
+        if (showLoading) setIsRefreshing(false);
       }
-    } catch (err: any) {
-      console.warn("Status check notice:", err);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+    },
+    [currentShop.id, handleApprovalTransition, updateActiveShop]
+  );
 
-  // Real-time subscription to status changes via Supabase Realtime
+  // Real-time synchronization: Supabase Realtime + Periodic Polling + Window Focus
   useEffect(() => {
-    checkStatus();
+    // Initial check on mount
+    checkStatus(false);
 
+    // 1. Supabase Realtime channel for postgres_changes
     const channel = supabase
-      .channel(`shop_status_${currentShop.id}`)
+      .channel(`shop_status_sync_${currentShop.id}`)
       .on(
         "postgres_changes",
         {
@@ -124,20 +169,51 @@ export default function RegistrationStatusPage() {
         },
         (payload: any) => {
           if (payload?.new) {
-            setCurrentShop(payload.new);
-            updateActiveShop(payload.new);
-            if (payload.new.access_status === "APPROVED" || payload.new.access_status === "ACTIVE") {
-              confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+            const updated = payload.new;
+            setCurrentShop(updated);
+            updateActiveShop(updated);
+
+            if (updated.access_status === "APPROVED" || updated.access_status === "ACTIVE") {
+              handleApprovalTransition(updated);
+            } else if (updated.access_status === "REJECTED") {
+              setStatusMessage("Your application review has concluded. Status: REJECTED.");
+            } else if (updated.access_status === "INFO_REQUESTED") {
+              setStatusMessage("Action Required: Super Admin has requested additional details.");
             }
           }
         }
       )
       .subscribe();
 
+    // 2. Periodic polling fallback (every 3 seconds while pending)
+    const pollInterval = setInterval(() => {
+      if (!hasRedirectedRef.current) {
+        checkStatus(false);
+      }
+    }, 3000);
+
+    // 3. Refresh immediately on window focus or tab visibility change
+    const handleFocus = () => {
+      if (!hasRedirectedRef.current) {
+        checkStatus(false);
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && !hasRedirectedRef.current) {
+        checkStatus(false);
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(pollInterval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [currentShop.id]);
+  }, [currentShop.id, checkStatus, handleApprovalTransition, updateActiveShop]);
 
   // Handle submitting requested information or resubmission
   const handleSubmitRequestedInfo = async (e: React.FormEvent) => {
@@ -159,7 +235,18 @@ export default function RegistrationStatusPage() {
         updated_at: new Date().toISOString(),
       };
 
-      await supabase.from("shops").update(updates).eq("id", currentShop.id);
+      // Submit via server endpoint with elevated permissions
+      await fetch("/api/shops/register", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: currentShop.id,
+          status: "PENDING_APPROVAL",
+          rejectionReason: null,
+          message: additionalNote,
+        }),
+      });
+
       setCurrentShop((prev: any) => ({ ...prev, ...updates }));
       updateActiveShop(updates);
       setAdditionalNote("");
@@ -177,13 +264,13 @@ export default function RegistrationStatusPage() {
         {/* Brand Header */}
         <div className="text-center space-y-2">
           <div className="flex justify-center mb-1">
-            <TraceLogo size="xl" showTag tagText="ONBOARDING" linkTo="/" />
+            <TraceLogo size="xl" showTag tagText="VERIFICATION GATEWAY" linkTo="/" />
           </div>
           <h1 className="text-xl font-bold tracking-tight text-white">
             Shop Registration Status
           </h1>
           <p className="text-xs text-slate-400">
-            Platform Security & Verification Gateway
+            Real-Time Administrative Verification & Platform Security
           </p>
         </div>
 
@@ -203,7 +290,7 @@ export default function RegistrationStatusPage() {
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Your shop has been successfully verified and approved by the TRACE Platform Administration. You may now proceed to select your membership plan to unlock your billing counter.
+                  Your shop has been successfully approved by TRACE Platform Administration! Redirecting you to select a membership plan...
                 </p>
               </div>
             </div>
@@ -239,8 +326,26 @@ export default function RegistrationStatusPage() {
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  {currentShop.suspension_reason ||
+                  {metadata.latest_info_request ||
+                    currentShop.suspension_reason ||
                     "Our review team requires additional details regarding your store or GST documentation before approving."}
+                </p>
+              </div>
+            </div>
+          ) : currentStatus === "SUSPENDED" ? (
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-3.5">
+              <div className="h-10 w-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-rose-400">Account Suspended</h3>
+                  <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30 text-[10px]">
+                    SUSPENDED
+                  </Badge>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {currentShop.suspension_reason || "Your shop account is currently suspended. Please contact TRACE support."}
                 </p>
               </div>
             </div>
@@ -321,9 +426,9 @@ export default function RegistrationStatusPage() {
               </div>
 
               <div>
-                <span className="text-slate-500 block text-[10px]">Verification Gate</span>
-                <span className="text-slate-300 block mt-0.5">
-                  Super Admin Manual Review
+                <span className="text-slate-500 block text-[10px]">Approval Status</span>
+                <span className="text-slate-300 block mt-0.5 font-semibold">
+                  {currentStatus}
                 </span>
               </div>
             </div>
@@ -394,14 +499,15 @@ export default function RegistrationStatusPage() {
             {currentStatus === "APPROVED" || currentStatus === "ACTIVE" ? (
               <Button
                 onClick={() => router.push("/subscriptions")}
+                disabled={isRedirecting}
                 className="w-full py-3.5 bg-gradient-to-r from-emerald-600 via-emerald-500 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2"
               >
-                <span>Proceed to Select Membership Plan</span>
+                <span>{isRedirecting ? "Redirecting..." : "Proceed to Select Membership Plan"}</span>
                 <ArrowRight className="h-4 w-4" />
               </Button>
             ) : (
               <Button
-                onClick={checkStatus}
+                onClick={() => checkStatus(true)}
                 disabled={isRefreshing}
                 variant="outline"
                 className="w-full py-3 border-slate-800 hover:bg-slate-800 text-slate-200 font-bold text-xs rounded-xl flex items-center justify-center gap-2"
