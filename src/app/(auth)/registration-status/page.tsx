@@ -56,21 +56,47 @@ export default function RegistrationStatusPage() {
     setIsRefreshing(true);
     setStatusMessage(null);
     try {
-      const { data, error } = await supabase
-        .from("shops")
-        .select("*")
-        .eq("id", currentShop.id)
-        .maybeSingle();
+      let latestShop: any = null;
+      try {
+        const { data, error } = await supabase
+          .from("shops")
+          .select("*")
+          .eq("id", currentShop.id)
+          .maybeSingle();
+        if (!error && data) latestShop = data;
+      } catch (e) {}
 
-      if (!error && data) {
-        setCurrentShop(data);
-        updateActiveShop(data);
+      // Fallback check in persistent onboarding_progress
+      if (!latestShop) {
+        try {
+          const { data: opData } = await supabase
+            .from("onboarding_progress")
+            .select("*")
+            .eq("shop_id", currentShop.id)
+            .maybeSingle();
+          if (opData?.step_data?.application) {
+            const app = opData.step_data.application;
+            latestShop = {
+              ...currentShop,
+              access_status: app.status || "PENDING_APPROVAL",
+              suspension_reason: app.rejection_reason || null,
+              qr_code_payload: JSON.stringify(app),
+            };
+          }
+        } catch (e) {}
+      }
 
-        if (data.access_status === "APPROVED" || data.access_status === "ACTIVE") {
+      if (latestShop) {
+        setCurrentShop(latestShop);
+        updateActiveShop(latestShop);
+
+        if (latestShop.access_status === "APPROVED" || latestShop.access_status === "ACTIVE") {
           confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
           setStatusMessage("Congratulations! Your shop application has been APPROVED.");
-        } else if (data.access_status === "REJECTED") {
+        } else if (latestShop.access_status === "REJECTED") {
           setStatusMessage("Your application review has concluded. Status: REJECTED.");
+        } else if (latestShop.access_status === "INFO_REQUESTED") {
+          setStatusMessage("Action Required: Super Admin has requested additional details.");
         } else {
           setStatusMessage("Status refreshed. Application is currently under review.");
         }

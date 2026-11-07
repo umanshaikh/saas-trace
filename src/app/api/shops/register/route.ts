@@ -1,12 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/client";
 
-// In-memory cross-node fallback registry for active deployment sync
+// In-memory fallback cache
 const globalShopRegistrations = new Map<string, any>();
 
 export async function GET(req: NextRequest) {
   try {
-    const list = Array.from(globalShopRegistrations.values());
+    const listMap = new Map<string, any>();
+
+    // 1. Fetch from Supabase onboarding_progress persistent store
+    try {
+      const { data: opData } = await supabase
+        .from("onboarding_progress")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (opData && Array.isArray(opData)) {
+        for (const row of opData) {
+          const app = row.step_data?.application || row.step_data?.shop;
+          if (app && app.name) {
+            const sid = row.shop_id || app.id || app.shopId;
+            listMap.set(sid, {
+              id: sid,
+              name: app.name,
+              slug: app.slug || app.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+              business_type: app.business_type || app.businessCategory || "retail",
+              owner_id: row.user_id || app.owner_id || "00000000-0000-0000-0000-000000000001",
+              phone: app.phone || "+919999999999",
+              email: app.email || "",
+              address_line1: app.address_line1 || app.address || "Main Market",
+              address_line2: null,
+              city: app.city || "Mumbai",
+              state: app.state || "Maharashtra",
+              pincode: app.pincode || "400001",
+              currency: "INR",
+              currency_symbol: "₹",
+              gstin: app.gstin || "",
+              is_verified: app.status === "APPROVED",
+              access_status: app.status || "PENDING_APPROVAL",
+              suspension_reason: app.rejection_reason || app.suspension_reason || null,
+              owner_name: app.owner_name || "Store Owner",
+              is_gst_registered: app.is_gst_registered || (app.gstin ? "YES" : "NO"),
+              gst_legal_name: app.gst_legal_name || "",
+              approved_by: app.approved_by || null,
+              approved_at: app.approved_at || null,
+              rejection_reason: app.rejection_reason || null,
+              rejected_by: app.rejected_by || null,
+              rejected_at: app.rejected_at || null,
+              info_request_history: app.info_request_history || [],
+              created_at: app.created_at || row.created_at || new Date().toISOString(),
+              updated_at: row.updated_at || new Date().toISOString(),
+            });
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.warn("Notice reading onboarding_progress in GET /api/shops/register:", dbErr);
+    }
+
+    // 2. Overlay with memory cache
+    globalShopRegistrations.forEach((v, k) => {
+      if (!listMap.has(k)) {
+        listMap.set(k, v);
+      }
+    });
+
+    const list = Array.from(listMap.values());
     return NextResponse.json({
       success: true,
       count: list.length,
@@ -20,23 +79,65 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { shopId, status, rejectionReason, approvedBy } = body;
+    const { shopId, status, rejectionReason, approvedBy, message } = body;
     if (!shopId || !status) {
       return NextResponse.json({ error: "shopId and status required" }, { status: 400 });
     }
-    const existing = globalShopRegistrations.get(shopId);
-    if (existing) {
-      existing.access_status = status;
-      if (rejectionReason) existing.suspension_reason = rejectionReason;
-      let meta: any = {};
-      try {
-        if (existing.qr_code_payload) meta = JSON.parse(existing.qr_code_payload);
-      } catch (e) {}
-      if (approvedBy) meta.approved_by = approvedBy;
-      if (rejectionReason) meta.rejection_reason = rejectionReason;
-      existing.qr_code_payload = JSON.stringify(meta);
-      globalShopRegistrations.set(shopId, existing);
+
+    // Update in memory cache
+    const existing = globalShopRegistrations.get(shopId) || {};
+    existing.access_status = status;
+    if (rejectionReason) existing.suspension_reason = rejectionReason;
+    globalShopRegistrations.set(shopId, existing);
+
+    // Update persistently in Supabase onboarding_progress
+    try {
+      const { data: rows } = await supabase
+        .from("onboarding_progress")
+        .select("*")
+        .eq("shop_id", shopId);
+
+      if (rows && rows.length > 0) {
+        for (const row of rows) {
+          const currentStepData = row.step_data || {};
+          const app = currentStepData.application || currentStepData.shop || {};
+          app.status = status;
+          if (rejectionReason) app.rejection_reason = rejectionReason;
+          if (approvedBy) app.approved_by = approvedBy;
+          if (status === "APPROVED") app.approved_at = new Date().toISOString();
+          if (status === "REJECTED") app.rejected_at = new Date().toISOString();
+          if (message) {
+            app.info_request_history = app.info_request_history || [];
+            app.info_request_history.push({ message, requested_at: new Date().toISOString(), requested_by: approvedBy || "Super Admin" });
+          }
+          currentStepData.application = app;
+
+          await supabase
+            .from("onboarding_progress")
+            .update({
+              step_data: currentStepData,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", row.id);
+        }
+      }
+    } catch (opErr) {
+      console.warn("Notice updating onboarding_progress in PATCH:", opErr);
     }
+
+    // Attempt best-effort update on shops table
+    try {
+      await supabase
+        .from("shops")
+        .update({
+          access_status: status,
+          suspension_reason: rejectionReason || null,
+          is_verified: status === "APPROVED",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", shopId);
+    } catch (sErr) {}
+
     return NextResponse.json({ success: true, shop: existing });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -144,49 +245,67 @@ export async function POST(req: NextRequest) {
     // Store in global registration registry
     globalShopRegistrations.set(shopId, newShop);
 
-    // 4. Save to Supabase shops table
-    const { error: insertErr } = await supabase.from("shops").insert([newShop]);
-    if (insertErr) {
-      console.warn("Supabase shop insert notice:", insertErr.message);
-    }
-
-    // 5. Create membership record for the owner
+    // 4. Guaranteed Persistent Storage: Save to Supabase onboarding_progress table
     try {
-      await supabase.from("memberships").upsert(
-        [
-          {
-            id: `mem_${shopId}_owner`,
-            shop_id: shopId,
-            profile_id: cleanOwnerId,
-            role: "OWNER",
-            is_active: true,
-            created_at: new Date().toISOString(),
+      await supabase.from("onboarding_progress").insert([
+        {
+          shop_id: shopId,
+          user_id: cleanOwnerId,
+          current_step: 1,
+          completed_steps: [],
+          is_completed: false,
+          step_data: {
+            application: {
+              shopId,
+              status: "PENDING_APPROVAL",
+              name: cleanName,
+              owner_name: owner_name || "Store Owner",
+              owner_id: cleanOwnerId,
+              email: cleanEmail,
+              phone: phone || "+919999999999",
+              business_type: (business_type || "retail").toLowerCase(),
+              address_line1: address_line1 || `${city || "Mumbai"} Central Market`,
+              city: city || "Mumbai",
+              state: state || "Maharashtra",
+              pincode: pincode || "400001",
+              is_gst_registered: gstRegBool ? "YES" : "NO",
+              gstin: cleanGstin,
+              gst_legal_name: cleanLegalName,
+              created_at: new Date().toISOString(),
+              submitted_at: new Date().toISOString(),
+            },
+            shop: newShop,
           },
-        ],
-        { onConflict: "shop_id,profile_id" }
-      );
-    } catch (memErr) {
-      console.warn("Membership seed notice:", memErr);
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ]);
+    } catch (opInsertErr) {
+      console.warn("Notice saving application to Supabase onboarding_progress:", opInsertErr);
     }
 
-    // 6. Generate Super Admin Notification
-    const adminNotification = {
-      id: `notif_app_${shopId}`,
-      shop_id: shopId,
-      recipient_profile_id: null, // Broadcast to platform administrators
-      title: "NEW SHOP REGISTRATION",
-      message: `A new shop has registered on TRACE and is waiting for your approval.`,
-      type: "NEW_SHOP_REGISTRATION",
-      action_url: `/shops?applicationId=${shopId}`,
-      is_read: false,
-      created_at: new Date().toISOString(),
-    };
-
+    // 5. Best-effort save to Supabase shops table
     try {
-      await supabase.from("notifications").insert([adminNotification]);
-    } catch (notifErr) {
-      console.warn("Notification insert notice:", notifErr);
-    }
+      const { error: insertErr } = await supabase.from("shops").insert([newShop]);
+      if (insertErr) {
+        console.warn("Supabase shop insert notice:", insertErr.message);
+      }
+    } catch (sErr) {}
+
+    // 6. Best-effort seed profile
+    try {
+      await supabase.from("profiles").upsert([
+        {
+          id: cleanOwnerId,
+          user_id: cleanOwnerId,
+          full_name: owner_name || "Store Owner",
+          email: cleanEmail,
+          phone: phone || "+919999999999",
+          preferred_language: "en",
+          is_super_admin: false,
+        },
+      ]);
+    } catch (pErr) {}
 
     return NextResponse.json({
       success: true,

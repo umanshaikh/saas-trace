@@ -1393,18 +1393,43 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
         });
       } catch (apiErr) {}
 
-      // Seed initial onboarding progress in Supabase
-      await supabase.from("onboarding_progress").upsert([
-        {
-          shop_id: newShop.id,
-          user_id: ownerId,
-          current_step: 1,
-          completed_steps: [],
-          is_completed: false,
-          step_data: initialOnboarding.stepData,
-          updated_at: new Date().toISOString(),
-        },
-      ], { onConflict: "user_id,shop_id" });
+      // Seed initial onboarding progress & shop application in Supabase
+      try {
+        await supabase.from("onboarding_progress").insert([
+          {
+            shop_id: newShop.id,
+            user_id: ownerId,
+            current_step: 1,
+            completed_steps: [],
+            is_completed: false,
+            step_data: {
+              ...initialOnboarding.stepData,
+              application: {
+                shopId: newShop.id,
+                status: "PENDING_APPROVAL",
+                name: newShop.name,
+                owner_name: currentUser.full_name || "Store Owner",
+                owner_id: ownerId,
+                email: newShop.email,
+                phone: newShop.phone,
+                business_type: newShop.business_type,
+                address_line1: newShop.address_line1,
+                city: newShop.city,
+                state: newShop.state,
+                pincode: newShop.pincode,
+                is_gst_registered: Boolean(data.gstin) ? "YES" : "NO",
+                gstin: data.gstin || "",
+                gst_legal_name: newShop.name,
+                created_at: new Date().toISOString(),
+                submitted_at: new Date().toISOString(),
+              },
+              shop: newShop,
+            },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ]);
+      } catch (opErr) {}
 
       // Seed pending subscription record in Supabase
       await supabase.from("shop_subscriptions").upsert([
