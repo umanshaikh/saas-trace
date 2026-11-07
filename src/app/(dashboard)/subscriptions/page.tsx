@@ -88,9 +88,30 @@ function SubscriptionsContent() {
     loadBillingHistory();
   }, [activeShop.id, activeSubscription?.status]);
 
+  const isShopApproved =
+    activeShop.access_status === "APPROVED" || activeShop.access_status === "ACTIVE";
+
   const handleStartUpgrade = (plan: any) => {
     if (userRole !== "OWNER") {
       alert("Subscription management and billing plan upgrades are restricted to Store Owners.");
+      return;
+    }
+    if (!isShopApproved) {
+      if (activeShop.access_status === "PENDING_APPROVAL") {
+        setErrorMessage(
+          "Your shop registration has been submitted successfully. Our team is reviewing your application. You will be able to select a membership plan after approval."
+        );
+      } else if (activeShop.access_status === "REJECTED") {
+        setErrorMessage(
+          "Your shop registration was not approved. Please review the reason or contact TRACE support."
+        );
+      } else if (activeShop.access_status === "SUSPENDED") {
+        setErrorMessage(
+          "This shop has been suspended by platform administration. Membership purchases and dashboard access are blocked."
+        );
+      } else {
+        setErrorMessage("Shop approval by Super Admin is required before purchasing a membership.");
+      }
       return;
     }
     setErrorMessage(null);
@@ -362,6 +383,59 @@ function SubscriptionsContent() {
 
       {/* Plans Pricing Grid */}
       <div id="plans-selection-grid" className="space-y-4">
+        {/* Shop Approval Restriction Notice */}
+        {!isShopApproved && (
+          <div className="space-y-2">
+            {activeShop.access_status === "PENDING_APPROVAL" ? (
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <Clock className="h-5 w-5 text-amber-400 shrink-0 mt-0.5 sm:mt-0 animate-pulse" />
+                  <div>
+                    <p className="text-xs font-bold text-amber-400">Application Under Review</p>
+                    <p className="text-xs text-slate-300">
+                      Your shop registration has been submitted successfully. Our team is reviewing your application. You will be able to select a membership plan after approval.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => router.push("/registration-status")}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shrink-0 transition-colors"
+                >
+                  View Status
+                </button>
+              </div>
+            ) : activeShop.access_status === "REJECTED" ? (
+              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <XCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5 sm:mt-0" />
+                  <div>
+                    <p className="text-xs font-bold text-rose-400">Registration Not Approved</p>
+                    <p className="text-xs text-slate-300">
+                      Your shop registration was not approved. Please review the reason or contact TRACE support.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => router.push("/registration-status")}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shrink-0 transition-colors"
+                >
+                  Review Details
+                </button>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center gap-3">
+                <ShieldAlert className="h-5 w-5 text-rose-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-bold text-rose-400">Access Restricted</p>
+                  <p className="text-xs text-slate-300">
+                    This shop has been suspended by platform administration. Membership purchases and dashboard access are blocked.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-bold text-foreground">Select Your Membership Plan</h2>
           <p className="text-xs text-muted-foreground">
@@ -502,17 +576,21 @@ function SubscriptionsContent() {
                   <div className="pt-5">
                     <Button
                       variant={isCurrentActive ? "secondary" : isPro ? "default" : "outline"}
-                      disabled={isCurrentActive || userRole !== "OWNER"}
+                      disabled={isCurrentActive || userRole !== "OWNER" || !isShopApproved}
                       onClick={() => handleStartUpgrade(plan)}
                       className={`w-full py-2.5 text-xs font-black rounded-xl shadow-sm ${
                         isCurrentActive
                           ? "bg-muted text-muted-foreground"
+                          : !isShopApproved
+                          ? "opacity-50 cursor-not-allowed bg-slate-800 text-slate-400"
                           : isPro
                           ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30"
                           : "border-border/80 hover:bg-muted"
                       }`}
                     >
-                      {isCurrentActive
+                      {!isShopApproved
+                        ? "Approval Required"
+                        : isCurrentActive
                         ? "Active Membership"
                         : isSubActive
                         ? `Switch to ${plan.name}`

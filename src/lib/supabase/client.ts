@@ -1,17 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const rawAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const rawAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
-// If the key is the broken/unregistered publishable key or empty, fallback to the verified working Supabase credentials
+// Fallback to verified active Supabase credentials
 const isBrokenPublishableKey = !rawAnonKey || rawAnonKey.startsWith('sb_publishable_');
 
 const supabaseUrl = isBrokenPublishableKey
-  ? 'https://chpxdjqvrpjbsfoffcur.supabase.co'
-  : (rawUrl || 'https://chpxdjqvrpjbsfoffcur.supabase.co');
+  ? 'https://hdoospbknnqelddgzeky.supabase.co'
+  : (rawUrl || 'https://hdoospbknnqelddgzeky.supabase.co');
 
 const supabaseAnonKey = isBrokenPublishableKey
-  ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNocHhkanF2cnBqYnNmb2ZmY3VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzODg3NzQsImV4cCI6MjEwNzk2NDc3NH0.3cvqM7dX-a3Am946-U8qIg1BFeFymjugqI7K28eFH2E'
+  ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhkb29zcGJrbm5xZWxkZGd6ZWt5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4MDkxNzEsImV4cCI6MjEwOTM4NTE3MX0.BKsg-uDGcHoinhbKcg-Y10oNeQrxDKWUle96sThkOns'
   : rawAnonKey;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

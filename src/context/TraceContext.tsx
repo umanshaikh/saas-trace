@@ -1207,8 +1207,8 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
       currency: "INR",
       currency_symbol: "₹",
       gstin: data.gstin || "",
-      is_verified: true,
-      access_status: "ACTIVE",
+      is_verified: false,
+      access_status: "PENDING_APPROVAL",
       invite_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
       created_at: new Date().toISOString(),
     };
@@ -1298,6 +1298,29 @@ export function TraceProvider({ children }: { children: React.ReactNode }) {
           created_at: new Date().toISOString(),
         },
       ], { onConflict: "shop_id,profile_id" });
+
+      // Dispatch to trusted server endpoint to record metadata & alert Super Admin
+      try {
+        await fetch("/api/shops/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shopId: newShop.id,
+            name: newShop.name,
+            owner_name: currentUser.full_name || "Store Owner",
+            owner_id: ownerId,
+            email: newShop.email,
+            phone: newShop.phone,
+            business_type: newShop.business_type,
+            address_line1: newShop.address_line1,
+            city: newShop.city,
+            state: newShop.state,
+            pincode: newShop.pincode,
+            is_gst_registered: Boolean(data.gstin),
+            gstin: data.gstin,
+          }),
+        });
+      } catch (apiErr) {}
 
       // Seed initial onboarding progress in Supabase
       await supabase.from("onboarding_progress").upsert([

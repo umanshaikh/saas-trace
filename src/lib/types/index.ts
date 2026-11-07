@@ -9,7 +9,16 @@ export type ShopBusinessType =
   | 'retail'
   | 'other';
 
-export type AccessStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REJECTED' | 'CANCELLED' | 'EXPIRED';
+export type AccessStatus =
+  | 'PENDING'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'INFO_REQUESTED'
+  | 'ACTIVE'
+  | 'SUSPENDED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'EXPIRED';
 
 export interface Profile {
   id: string;

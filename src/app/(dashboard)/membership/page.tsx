@@ -36,6 +36,16 @@ export default function MyMembershipPage() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
 
+  useEffect(() => {
+    if (
+      activeShop.access_status === "PENDING_APPROVAL" ||
+      activeShop.access_status === "REJECTED" ||
+      activeShop.access_status === "INFO_REQUESTED"
+    ) {
+      router.replace("/registration-status");
+    }
+  }, [activeShop.access_status, router]);
+
   const plan =
     activeSubscription?.plan ||
     subscriptionPlans.find((p) => p.id === activeSubscription?.plan_id) ||

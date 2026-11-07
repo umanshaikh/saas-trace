@@ -65,6 +65,21 @@ export default function DashboardLayout({
         return;
       }
 
+      // 0. Super Admin Approval Check: If not approved, redirect to registration status page
+      if (
+        !isDemoStore &&
+        (activeShop.access_status === "PENDING_APPROVAL" ||
+          activeShop.access_status === "REJECTED" ||
+          activeShop.access_status === "INFO_REQUESTED")
+      ) {
+        if (isMounted) {
+          setAccessBlocked(true);
+          setIsVerifyingAccess(false);
+        }
+        router.replace("/registration-status");
+        return;
+      }
+
       // 1. Check local state
       if (onboardingProgress && !onboardingProgress.isCompleted && !isDemoStore && !isExemptRoute) {
         if (isMounted) {

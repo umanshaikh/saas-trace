@@ -1,17 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const rawAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const isBrokenPublishableKey = !rawAnonKey || rawAnonKey.startsWith('sb_publishable_');
+const rawUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const rawKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-const supabaseUrl = isBrokenPublishableKey
-  ? 'https://chpxdjqvrpjbsfoffcur.supabase.co'
-  : (rawUrl || 'https://chpxdjqvrpjbsfoffcur.supabase.co');
+const supabaseUrl = rawUrl || 'https://hdoospbknnqelddgzeky.supabase.co';
+const supabaseKey = rawKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhkb29zcGJrbm5xZWxkZGd6ZWt5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4MDkxNzEsImV4cCI6MjEwOTM4NTE3MX0.BKsg-uDGcHoinhbKcg-Y10oNeQrxDKWUle96sThkOns';
 
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNocHhkanF2cnBqYnNmb2ZmY3VyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjM4ODc3NCwiZXhwIjoyMTA3OTY0Nzc0fQ.RopBjy-LkfJLsjmRhsWTiQC1-Jv82wnNfn0pRu9xqKU';
-
-// Server-side only client with elevated privileges for admin APIs, webhooks, and background jobs
-export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+// Server-side client with privileges for admin APIs, webhooks, and background jobs
+export const supabaseAdmin = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,

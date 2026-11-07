@@ -33,7 +33,8 @@ export default function RegisterPage() {
         setIsSubmitting(false);
         return;
       }
-      router.push("/onboarding");
+      // Redirect to registration approval status page
+      router.push("/registration-status");
     } catch (err: any) {
       setErrorMessage(err.message || "Failed to create account");
       setIsSubmitting(false);

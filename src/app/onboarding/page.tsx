@@ -644,7 +644,10 @@ Britannia Good Day Cookies 100g,30,22,75,BIS-100,890103005,18,packet`;
     setIsSaving(true);
     try {
       await completeOnboarding();
-      if (!isSubActiveOnboarding) {
+      if (activeShop.access_status === "PENDING_APPROVAL" || activeShop.access_status === "REJECTED" || activeShop.access_status === "INFO_REQUESTED") {
+        showToast("info", "Approval Pending", "Shop registration submitted! Redirecting to approval status page.");
+        router.push("/registration-status");
+      } else if (!isSubActiveOnboarding) {
         showToast("info", "Membership Required", "Shop setup complete! Please select a membership plan to unlock your dashboard.");
         router.push("/subscriptions?welcome=true");
       } else {
